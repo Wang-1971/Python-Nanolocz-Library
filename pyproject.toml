@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pnanolocz_lib"
+version = "0.1.0"
+description = "A Python library for AFM, HS-AFM, and Localization AFM data analysis. Based on NanoLocz"
+authors = [
+    { name = "George Heath", email = "G.R.Heath@leeds.ac.uk" },
+    { name = "D. E. Rollins", email = "d.e.rollins@leeds.ac.uk"}
+]
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib"
+]
+
+[project.urls]
+Homepage = "https://github.com/derollins/NanoLocz-Matlab-Library"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
