@@ -79,15 +79,15 @@ mask = thresholder(img, method="otsu", limits=None)
 
 | Method       | Description |
 |--------------|-------------|
-| `selection` | Use user-supplied hand-drawn or binary mask |
-| `histogram` | Threshold by intensity limits |
-| `otsu` | Otsu's global thresholding method |
-| `adaptive` | Adaptive thresholding using local mean or Gaussian |
-| `canny` | Canny edge detection |
-| `sobel` | Sobel edge detection |
-| `log` | Laplacian of Gaussian edge detection |
-| `zerocross` | Zero-crossing edge detection |
-| `custom` | Custom binary mask or segmentation map |
+| `selection` | Use user-supplied hand-drawn or binary mask. |
+| `histogram` | Threshold by intensity limits. |
+| `otsu` | Otsu's global thresholding method. |
+| `auto_edges` | Detect edges using Sobel gradient and morphological filtering. |
+| `hist_edges` | Detect edges by thresholding with histogram limits and morphological operations. |
+| `otsu_edges` | Detect edges after Otsu thresholding using morphological operations. |
+| `otsu_skel` | Skeletonize regions selected by Otsu thresholding. |
+| `hist_skel` | Skeletonize regions selected by histogram thresholding. |
+| `line_step` | Detect step changes along each row using PELT change point detection. |
 
 - **`pnanolocz_lib.level_auto`**  
   Pre‑defined multi‑frame routines built from `level` + `thresholder`.
@@ -102,8 +102,8 @@ mask = thresholder(img, method="otsu", limits=None)
 | `high-low x2 (fit)`      | Two‑stage plane + median line leveling, with Gaussian‑fit histogram threshold in between.     |
 | `iterative fit holes`    | Iterative plane + median line leveling, masking “holes” via Gaussian‑fit low‑side threshold.  |
 | `iterative fit peaks`    | Iterative plane + median line leveling, masking “peaks” via Gaussian‑fit high‑side threshold. |
-| `multi-plane-edges`      | Plane leveling interleaved with Sobel‑edge masks and weighted plane fits.                    |
-| `multi-plane-otsu`       | Plane leveling interleaved with Otsu‑edge masks and weighted plane fits.                     |
+| `multi-plane-edges`      | Not yet implimented.                                                                          |
+| `multi-plane-otsu`       | Not yet implimented.                                                                          |
 
 ---
 
