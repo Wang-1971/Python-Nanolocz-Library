@@ -109,7 +109,7 @@ mask = thresholder(img, method="otsu", limits=None)
 
 ## 📝 Citation
 
-If you use this library, please cite:  
+If you use this library, please cite:
 Heath, G.R. et al. *NanoLocz: Image analysis platform for AFM, high‑speed AFM and localization AFM.* Small Methods 2024, 2301766. https://doi.org/10.1002/smtd.202301766
 
 ---

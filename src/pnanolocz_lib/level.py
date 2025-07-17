@@ -25,6 +25,9 @@ Supported Leveling Methods
 Typical usage involves calling the `level()` function with an image (2D) or
 image stack (3D) and specifying the desired method and polynomial orders.
 
+The `get_background()` funciton generates the array of fitted lines without
+subtracting this from the image (i.e to visualise the background).
+
 Examples
 --------
 >>> from pnanolocz_lib.filters.level import level
@@ -516,30 +519,113 @@ def level(
 
     leveled_frames = []
 
-    for k in range(frames.shape[0]):
-        f = frames[k]
-        m = mask[k] if mask is not None else None
+    for idx in range(frames.shape[0]):
+        frame = frames[idx]
+        frame_mask = mask[idx] if mask is not None else None
 
         if method == "plane":
-            leveled = level_plane(f, m, polyx, polyy)
+            leveled = level_plane(frame, frame_mask, polyx, polyy)
         elif method == "line":
-            leveled = level_line(f, m, polyx, polyy)
+            leveled = level_line(frame, frame_mask, polyx, polyy)
         elif method == "med_line":
-            leveled = level_med_line(f, m, polyx, polyy)
+            leveled = level_med_line(frame, frame_mask, polyx, polyy)
         elif method == "med_line_y":
-            leveled = level_med_line_y(f, m, polyx, polyy)
+            leveled = level_med_line_y(frame, frame_mask, polyx, polyy)
         elif method == "smed_line":
-            leveled = level_smed_line(f, m, polyx, polyy)
+            leveled = level_smed_line(frame, frame_mask, polyx, polyy)
         elif method == "mean_plane":
-            leveled = level_mean_plane(f, m, polyx, polyy)
+            leveled = level_mean_plane(frame, frame_mask, polyx, polyy)
         elif method == "log_y":
-            leveled = level_log_y(f, m, polyx, polyy)
+            leveled = level_log_y(frame, frame_mask, polyx, polyy)
         else:
             raise ValueError(f"Unknown leveling method: {method}")
 
         leveled_frames.append(leveled)
 
     result = np.stack(leveled_frames, axis=0)
+
+    return result if is_stack else result[0]
+
+
+def get_background(
+    img: np.ndarray,
+    polyx: int,
+    polyy: int,
+    method: Literal[
+        "plane",
+        "line",
+        "med_line",
+        "med_line_y",
+        "smed_line",
+        "mean_plane",
+        "log_y",
+    ],
+    mask: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """
+    Compute the background surface/lines that would be subtracted
+    by `level(...)`, without actually subtracting it.
+
+    Parameters
+    ----------
+    img : (N, H, W) array
+        Input AFM image or image stack. Shape can be (H, W) or (N, H, W),
+        where N is the number of frames in a stack.
+    polyx : int
+        Polynomial order for X-direction leveling. Set to 0 to skip.
+    polyy : int
+        Polynomial order for Y-direction leveling. Set to 0 to skip.
+    method : str
+        One of 'plane', 'line', 'med_line', etc.
+    mask : (H, W) bool array, optional
+        Valid-pixel mask. If None, all pixels are valid.
+
+    Returns
+    -------
+    background : (N, H, W) array
+        The fitted background surface or line-by-line fits.
+    """
+    img = np.asarray(img)
+    is_stack = img.ndim == 3
+
+    # Convert to (N, H, W) for consistent processing
+    if is_stack:
+        frames = img
+    else:
+        frames = img[np.newaxis, ...]  # shape (1, H, W)
+
+    if mask is not None:
+        mask = np.asarray(mask)
+        if mask.ndim == 2:
+            mask = mask[np.newaxis, ...]  # shape (1, H, W)
+        elif mask.shape != frames.shape:
+            raise ValueError("mask must have the same shape as img")
+
+    background_frames = []
+
+    for idx in range(frames.shape[0]):
+        frame = frames[idx]
+        frame_mask = mask[idx] if mask is not None else None
+        if method == "plane":
+            bg = frame - level_plane(frame, frame_mask, polyx, polyy)
+        elif method == "line":
+            bg = frame - level_line(frame, frame_mask, polyx, polyy)
+        elif method == "med_line":
+            bg = frame - level_med_line(frame, frame_mask, polyx, polyy)
+        elif method == "med_line_y":
+            bg = frame - level_med_line_y(frame, frame_mask, polyx, polyy)
+        elif method == "smed_line":
+            bg = frame - level_smed_line(frame, frame_mask, polyx, polyy)
+        elif method == "mean_plane":
+            bg = frame - level_mean_plane(frame, frame_mask, polyx, polyy)
+        elif method == "log_y":
+            bg = frame - level_log_y(frame, frame_mask, polyx, polyy)
+        else:
+            raise ValueError(f"Unknown leveling method: {method}")
+
+        background_frames.append(bg)
+
+    result = np.stack(background_frames, axis=0)
 
     return result if is_stack else result[0]
 
