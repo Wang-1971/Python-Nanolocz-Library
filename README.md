@@ -57,7 +57,7 @@ mask = thresholder(img, method="otsu", limits=None)
 - **`pnanolocz_lib.level`**  
   Core flattening / leveling (plane, line, median, smoothed, mean, log).
 
-  ### Leveling Methods (`level()`)
+    Available methods:
 
 | Method       | Description                                                |
 |--------------|------------------------------------------------------------|
@@ -69,8 +69,25 @@ mask = thresholder(img, method="otsu", limits=None)
 | `mean_plane` | Global mean subtraction.                                   |
 | `log_y`      | Logarithmic curve subtraction along the Y‑axis.            |
 
+- **`pnanolocz_lib.thresholder`**
+  Intensity / edge detection: histogram, Otsu, auto edges, skeleton, step detection.
+
+    Available thresholds:
+
+| Method       | Description |
+|--------------|-------------|
+| `selection` | Use user-supplied hand-drawn or binary mask |
+| `histogram` | Threshold by intensity limits |
+| `otsu` | Otsu's global thresholding method |
+| `adaptive` | Adaptive thresholding using local mean or Gaussian |
+| `canny` | Canny edge detection |
+| `sobel` | Sobel edge detection |
+| `log` | Laplacian of Gaussian edge detection |
+| `zerocross` | Zero-crossing edge detection |
+| `custom` | Custom binary mask or segmentation map |
+
 - **`pnanolocz_lib.level_auto`**  
-  Pre‑defined multi‑frame workflows built from `level` + `thresholder`.
+  Pre‑defined multi‑frame routines built from `level` + `thresholder`.
 
 | Routine                  | Description                                                                                   |
 |--------------------------|-----------------------------------------------------------------------------------------------|
@@ -84,9 +101,6 @@ mask = thresholder(img, method="otsu", limits=None)
 | `iterative fit peaks`    | Iterative plane + median line leveling, masking “peaks” via Gaussian‑fit high‑side threshold. |
 | `multi-plane-edges`      | Plane leveling interleaved with Sobel‑edge masks and weighted plane fits.                    |
 | `multi-plane-otsu`       | Plane leveling interleaved with Otsu‑edge masks and weighted plane fits.                     |
-
-- **`pnanolocz_lib.thresholder`**  
-  Intensity / edge detection: histogram, Otsu, auto edges, skeleton, step detection.
 
 ---
 
