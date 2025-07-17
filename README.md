@@ -89,7 +89,7 @@ mask = thresholder(img, method="otsu", limits=None)
 | `hist_skel` | Skeletonize regions selected by histogram thresholding. |
 | `line_step` | Detect step changes along each row using PELT change point detection. |
 
-- **`pnanolocz_lib.level_auto`**  
+- **`pnanolocz_lib.level_auto`**
   Pre‑defined multi‑frame routines built from `level` + `thresholder`.
 
 | Routine                  | Description                                                                                   |

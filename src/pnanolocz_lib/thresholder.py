@@ -42,8 +42,8 @@ Returns
 mask : ndarray
     Boolean or NaN-masked array of same shape as img.
 
-Author
-------
+Authors
+-------
 George Heath, University of Leeds (2025)
 D. E. Rollins, University of Leeds (2025)
 

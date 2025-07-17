@@ -44,8 +44,8 @@ of steps.
 Steps may invoke `level`, `level_weighted`, or `thresholder`, passing
 parameters for polynomial orders, threshold bounds, or other options.
 
-Author
-------
+Authors
+-------
 George Heath, University of Leeds (2025)
 D. E. Rollins, University of Leeds (2025)
 
