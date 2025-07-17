@@ -49,6 +49,7 @@ Authors
 George Heath, University of Leeds (2025)
 D. E. Rollins, University of Leeds (2025)
 
+This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
 import numpy as np

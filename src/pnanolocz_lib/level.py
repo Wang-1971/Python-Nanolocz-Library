@@ -33,8 +33,8 @@ Examples
 >>> from pnanolocz_lib.filters.level import level_plane
 >>> flattened = level_plane(img, mask=None, polyx=2, polyy=2)
 
-Author
-------
+Authors
+-------
 George Heath, University of Leeds (2025)
 Maya Tekchandani, UNiversity of Leeds (2025)
 D. E. Rollins, University of Leeds (2025)

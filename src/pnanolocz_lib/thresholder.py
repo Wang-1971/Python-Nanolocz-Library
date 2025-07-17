@@ -25,6 +25,8 @@ Usage
 >>> from pnanolocz_lib.filters.thresholder import thresholder, histogram, otsu
 >>> mask = histogram(img, limits=(0, 1), invert=False)
 
+>>> mask_otsu = thresholder(img, 'otsu', invert = False)
+
 Parameters
 ----------
 img : ndarray
@@ -47,6 +49,7 @@ Authors
 George Heath, University of Leeds (2025)
 D. E. Rollins, University of Leeds (2025)
 
+This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
 import numpy as np
