@@ -1,12 +1,15 @@
+# pnanolocz_lib 📦
+
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-# pnanolocz_lib 📦  
 *A Python library for AFM image flattening, background leveling, and edge detection, based on the MATLAB NanoLocz platform.*
 
 ---
 
 ## 🔍 Key Features
-- **Versatile Leveling**: Polynomial plane/line subtraction, median- and log‑based flattening.
+
+- **Versatile Leveling**: Polynomial plane/line subtraction, median- and log‑based
+flattening.
 - **Automated Routines**: Multi‑frame “routines” (plane‑line, iterative high/low, Otsu pipelines, etc.).
 - **Threshold & Edge Masks**: Histogram, Otsu, Sobel‑based edges, skeletonization, change‑point line steps.
 - **2D & 3D Support**: Works on single images `(H,W)` or stacks `(N,H,W)`.

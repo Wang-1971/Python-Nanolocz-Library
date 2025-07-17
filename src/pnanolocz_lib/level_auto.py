@@ -525,6 +525,44 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
 
 
 def _compute_gauss_limits(image: np.ndarray, kind: str) -> tuple[float, float]:
+    """
+    Compute intensity threshold limits from a Gaussian fit to the image data.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        2D image array from which to compute Gaussian-based thresholds. NaN
+        values are ignored.
+    kind : str
+        Type of Gaussian thresholding to apply. Must be one of:
+        - 'gauss_fit'   : Return symmetric limits around the
+        mean (mu ± 1.5 * sigma).
+        - 'gauss_holes' : Return lower-bound threshold (mu - 1.5 * sigma, ∞),
+        for dark features.
+        - 'gauss_peaks' : Return upper-bound threshold (-∞, mu + 1.5 * sigma),
+        for bright features.
+
+    Returns
+    -------
+    limits : tuple of float
+        The (low, high) threshold bounds based on the Gaussian fit.
+
+    Raises
+    ------
+    ValueError
+        If `kind` is not a recognized thresholding type.
+
+    Notes
+    -----
+    The method fits a single normal distribution to the image values using
+    `scipy.stats.norm.fit`, then derives bounds based on 1.5 standard
+    deviations from the mean. Useful for automatic intensity-based masking.
+
+    Examples
+    --------
+    >>> low, high = _compute_gauss_limits(img, 'gauss_peaks')
+    >>> mask = (img >= low) & (img <= high)
+    """
     # flatten and drop NaNs
     data = image.ravel()
     data = data[~np.isnan(data)]
