@@ -1,0 +1,102 @@
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+# pnanolocz_lib 📦  
+*A Python library for AFM image flattening, background leveling, and edge detection, based on the MATLAB NanoLocz platform.*
+
+---
+
+## 🔍 Key Features
+- **Versatile Leveling**: Polynomial plane/line subtraction, median- and log‑based flattening.
+- **Automated Routines**: Multi‑frame “routines” (plane‑line, iterative high/low, Otsu pipelines, etc.).
+- **Threshold & Edge Masks**: Histogram, Otsu, Sobel‑based edges, skeletonization, change‑point line steps.
+- **2D & 3D Support**: Works on single images `(H,W)` or stacks `(N,H,W)`.
+- **Batch‑Ready**: Scriptable for high‑speed AFM (HS‑AFM) and localization AFM (LAFM) workflows.
+
+---
+
+## 📦 Installation
+
+```bash
+pip install pnanolocz_lib
+```
+
+Or clone & install locally:
+
+```bash
+git clone https://github.com/derollins/Pyhton-Nanolocz-Library.git
+cd Pyhton-Nanolocz-Library
+pip install .
+```
+
+---
+
+## 🚀 Quickstart
+
+```python
+import numpy as np
+from pnanolocz_lib.level import level
+from pnanolocz_lib.level_auto import level_auto
+from pnanolocz_lib.thresholder import thresholder
+
+# 1) Polynomial plane leveling
+img = np.load("frame.npy")        # (H,W)
+flat = level(img, 2, 2, method="plane")
+
+# 2) Automated multi‑frame pipeline
+stack = np.load("stack.npy")      # (N,H,W)
+out = level_auto(stack, frames=range(stack.shape[0]), routine="multi-plane-otsu")
+
+# 3) Otsu mask
+mask = thresholder(img, method="otsu", limits=None)
+```
+
+---
+
+## 📖 Modules
+
+- **`pnanolocz_lib.level`**  
+  Core flattening / leveling (plane, line, median, smoothed, mean, log).
+
+  ### Leveling Methods (`level()`)
+
+| Method       | Description                                                |
+|--------------|------------------------------------------------------------|
+| `plane`      | Polynomial line + plane subtraction in X and Y (centered fitting). |
+| `line`       | Row‑wise and column‑wise polynomial leveling (each line individually). |
+| `med_line`   | Row‑wise median line flattening.                           |
+| `med_line_y` | Column‑wise median flattening.                             |
+| `smed_line`  | Smoothed median line subtraction.                          |
+| `mean_plane` | Global mean subtraction.                                   |
+| `log_y`      | Logarithmic curve subtraction along the Y‑axis.            |
+
+- **`pnanolocz_lib.level_auto`**  
+  Pre‑defined multi‑frame workflows built from `level` + `thresholder`.
+
+| Routine                  | Description                                                                                   |
+|--------------------------|-----------------------------------------------------------------------------------------------|
+| `plane-line`             | `plane` leveling followed by `med_line`.                                                      |
+| `iterative 1nm high`     | Plane leveling + high‑side histogram threshold (1 nm) with iterative refinements.             |
+| `iterative -1nm low`     | Plane leveling + low‑side histogram threshold (−1 nm) with iterative refinements.             |
+| `iterative high low`     | Plane leveling + symmetric ±1 nm histogram threshold with iterative refinements.              |
+| `Line1 + Otsu Line2`     | Single‑pass line leveling, Otsu‑mask, then a second line leveling.                            |
+| `high-low x2 (fit)`      | Two‑stage plane + median line leveling, with Gaussian‑fit histogram threshold in between.     |
+| `iterative fit holes`    | Iterative plane + median line leveling, masking “holes” via Gaussian‑fit low‑side threshold.  |
+| `iterative fit peaks`    | Iterative plane + median line leveling, masking “peaks” via Gaussian‑fit high‑side threshold. |
+| `multi-plane-edges`      | Plane leveling interleaved with Sobel‑edge masks and weighted plane fits.                    |
+| `multi-plane-otsu`       | Plane leveling interleaved with Otsu‑edge masks and weighted plane fits.                     |
+
+- **`pnanolocz_lib.thresholder`**  
+  Intensity / edge detection: histogram, Otsu, auto edges, skeleton, step detection.
+
+---
+
+## 📝 Citation
+
+If you use this library, please cite:  
+Heath, G.R. et al. *NanoLocz: Image analysis platform for AFM, high‑speed AFM and localization AFM.* Small Methods 2024, 2301766. https://doi.org/10.1002/smtd.202301766
+
+---
+
+## ⚖️ License
+
+Distributed under the terms of the [GNU GPL v3.0](https://www.gnu.org/licenses/gpl-3.0.txt).
