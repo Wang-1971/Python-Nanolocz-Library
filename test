@@ -1,0 +1,171 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Feb  4 16:13:46 2025
+
+@author: pymte
+"""
+
+import numpy as np
+import os
+from PIL import Image
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+
+
+def level(imarray, polyx, polyy, line_plane, mask):
+
+    if mask is None:
+        mask = imarray > -np.inf
+
+    if line_plane == "plane":
+        mc = np.mean(imarray, axis=0)  # mean columns(y)
+        x = np.arange(0, len(mc), 1)  # image x axis (x)
+        p = np.polyfit(x, mc, polyx)  # p = polynomial coefficients
+        p = np.poly1d(p)  # polynomial equation
+        pvals = np.polyval(p, x)  # polynomial evaluated at x coordinates
+        r = imarray - pvals[np.newaxis, :]  # subtract polynomial fit from each column
+
+        mr = np.mean(r, axis=1)  # mean rows (y)
+        y = np.arange(0, len(mr), 1)  # image y axis (x)
+        p = np.polyfit(y, mr, polyy)  # p = polynomial coefficients
+        p = np.poly1d(p)  # polynomial equation
+        pvals = np.polyval(p, y)  # polynomial evaluated at y coordinates
+        r = r - pvals[:, np.newaxis]  # subtract polynomial fit from each row
+
+        return r
+
+    if line_plane == "line":
+        r = np.zeros_like(imarray)
+        if polyx > 0:
+            x = np.arange(
+                imarray.shape[1]
+            )  # vector x containing column indices from 0 to 1 - number of columns in imarray
+            y2 = np.zeros_like(imarray)
+            mask_line = []
+
+            for i in range(
+                imarray.shape[0]
+            ):  # loop that iterates over the number of rows in the image
+                pos = (
+                    mask[i, :] > 0
+                )  # creates a logical array where each element is true if the corresponding element in mask is >0
+                if (
+                    sum(pos) > polyx + 8
+                ):  # checks if the number of true elements in pos is greater than polyx + 8
+                    y1 = imarray[
+                        i, pos
+                    ]  # extracts elements from the ith row of imarray at positions where pos is true
+                    x1 = x[
+                        pos
+                    ]  # extracts the elements from x at the positions where pos is true
+                    p = np.polyfit(
+                        x1, y1, polyx, full=False, cov=False
+                    )  # Fits a polynomial of degree polyx to the data points (x1, y1)
+                    # and returns the polynomial coefficients p
+                    mu = np.mean(x1), np.std(x1)
+                    # Normalize x1 and the range
+                    x_range_normalized = (x - mu[0]) / mu[1]
+                    # Evaluate polynomial
+                    y2[i, :] = np.polyval(
+                        p, x1
+                    )  # x_range_normalized) #note - seems to work just with x, not x normalised
+                    r[i, :] = (
+                        imarray[i, :] - y2[i, :]
+                    )  # subtract the polynomial from the line i
+                else:
+                    mask_line.append(i)
+            for i in mask_line:
+                r[i, :] = imarray[i, :] - np.median(y2, axis=0)
+        # return r
+
+        if polyy > 0:
+            y = np.arange(imarray.shape[0])  # vector y containing row indices
+            y2_y = np.zeros_like(imarray)
+            mask_line = []
+
+            for i in range(imarray.shape[1]):  # loop over columns
+                pos = mask[:, i] > 0  # logical array where mask > 0
+                if sum(pos) > polyy + 8:  # check if enough points for polyfit
+                    y1_y = imarray[pos, i]  # extract elements from column
+                    x1_y = y[pos]  # extract elements from y
+                    p_y = np.polyfit(
+                        x1_y, y1_y, polyy, full=False, cov=False
+                    )  # polynomial fit
+
+                    # Evaluate polynomial
+                    y2_y[:, i] = np.polyval(p_y, y)  # evaluate polynomial
+                    r[:, i] = imarray[:, i] - y2_y[:, i]  # subtract polynomial
+                else:
+                    mask_line.append(i)
+            for i in mask_line:
+                r[:, i] = imarray[:, i] - np.median(y2_y, axis=0)
+
+    return r
+
+
+"""           
+                
+                yp = mask[:, i]*r[:, i]  #apply mask by multiplying r by mask values
+                yf = yp[~np.isnan(yp)] # removes NaN values from yp
+                y = np.arange(imarray.shape[0]) #vector y containing row indices from 0 to 1 - number of rows in imarray
+                y = y[~np.isnan(yp)] #removes indices corresponding to nan values in yp from y
+                
+                # Debugging statements
+                
+                
+                if len(y) < polyy:
+                    #r[i, :] = imarray[i, :]
+                    r[:, i] = imarray[:, i]
+                else:
+                    p = np.polyfit(y, yf, polyy, full=False, cov=False)
+                    r[:, i] = r[:, i] - np.polyval(p, np.arange(imarray.shape[0]))
+        
+        """
+
+
+# function to output array of fitted lines without subtracting this from the image (visualise background)
+def linefit(imarray, polyx):
+    mask = imarray > -np.inf
+    if polyx > 0:
+        x = np.arange(imarray.shape[1])
+        y2 = np.zeros_like(imarray)
+
+        for i in range(imarray.shape[0]):
+            pos = mask[i, :] > 0
+            y1 = imarray[i, pos]
+            x1 = x[pos]
+            p = np.polyfit(x1, y1, polyx, full=False, cov=False)
+            # Evaluate polynomial
+            y2[i, :] = np.polyval(p, x1)
+        return y2
+
+
+# TEST IMAGE
+AFM = np.load("lutAFM.npy")
+AFM = ListedColormap(AFM)
+
+dim = (512, 512)
+image_path = r"C:\Users\pymte\OneDrive - University of Leeds\_AFM Software\Level ML data\Raw as tiff"
+files = os.listdir(image_path)
+im = Image.open(os.path.join(image_path, files[20]))
+imr = im.resize(dim, Image.NEAREST)  # resize to 512x512 pix (nearest neighbour interp.)
+imarray = np.array(im)
+plt.imshow(imarray, cmap=AFM)
+plt.colorbar()
+plt.show()
+
+
+lev_im = level(imarray, 1, 0, "line", None)
+plt.imshow(lev_im, cmap=AFM)
+plt.colorbar()
+plt.show()
+
+lev_im2 = level(imarray, 0, 1, "line", None)
+plt.imshow(lev_im2, cmap=AFM)
+plt.colorbar()
+plt.show()
+
+line_im = linefit(imarray, 3)
+plt.imshow(line_im, cmap=AFM)
+plt.colorbar()
+plt.show()
