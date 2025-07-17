@@ -42,6 +42,7 @@ This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
 import numpy as np
+import warnings
 from typing import Optional, Literal
 from scipy.optimize import curve_fit
 
@@ -54,15 +55,16 @@ def level_plane(
     img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
 ) -> np.ndarray:
     """
-    Plane leveling fitting by subtracting polynomial curves in X and Y.
+    Plane leveling fitting by subtracting polynomial curves in X and Y,
+    replicating MATLAB's centered polynomial approach.
 
     Parameters
     ----------
     img : ndarray
         2D AFM image to be leveled.
     mask : ndarray or None
-        Binary mask or weighting matrix, same shape as img.
-        If None, all pixels are considered valid.
+        Boolean mask of same shape as img (True = valid). If None,
+        all pixels are valid.
     polyx : int
         Polynomial order for X-direction leveling.
     polyy : int
@@ -70,101 +72,180 @@ def level_plane(
 
     Returns
     -------
-    leveled : ndarray
+    leveled_img : ndarray
         The leveled image.
     """
+    # If no mask provided, treat all pixels as valid
     if mask is None:
         mask = ~np.isnan(img)
-
-    leveled = img.copy()
-
+    # Must have at least 6 valid pixels to fit anything
     if np.sum(mask) <= 5:
-        return leveled  # Not enough valid points
+        return img.copy()
 
-    # Fit polynomial in X direction (rows)
-    xp = np.nanmean(leveled * mask, axis=0)
-    valid_x = ~np.isnan(xp)
-    xl = np.arange(len(xp))[valid_x]
-    xf = xp[valid_x]
-    if polyx > 0 and len(xl) > polyx:
-        p_x = np.polyfit(xl, xf, polyx)
-        correction_x = np.polyval(p_x, np.arange(img.shape[1]))
-        leveled = leveled - correction_x[None, :]
-    else:
-        return leveled
+    # ————— X DIRECTION —————
+    # Compute column-wise mean over valid pixels
+    masked_for_columns = np.where(mask, img, np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        column_means = np.nanmean(masked_for_columns, axis=0)
 
-    # Fit polynomial in Y direction (columns)
-    yp = np.nanmean(leveled * mask, axis=1)
-    valid_y = ~np.isnan(yp)
-    yl = np.arange(len(yp))[valid_y]
-    yf = yp[valid_y]
-    if polyy > 0 and len(yl) > polyy:
-        p_y = np.polyfit(yl, yf, polyy)
-        correction_y = np.polyval(p_y, np.arange(img.shape[0]))
-        leveled = leveled - correction_y[:, None]
+    valid_columns = ~np.isnan(column_means)
+    column_indices = np.flatnonzero(valid_columns)
+    if column_indices.size <= polyx:
+        # Not enough points to fit X polynomial
+        return img.copy()
 
-    return leveled
+    # Center & scale column indices
+    # replicate MATLAB centering
+    # mu = [mean(column_indices), std(column_indices)]
+    col_centroid = column_indices.mean()
+    col_scale = column_indices.std(ddof=1)
+    standardized_columns = (column_indices - col_centroid) / col_scale
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", np.RankWarning)
+        # polyfit(..., polyx) with centering ⇒ same as MATLAB’s p, ~, mu
+        x_coeffs = np.polyfit(
+            standardized_columns,
+            column_means[valid_columns],
+            polyx,
+        )
+
+    # Evaluate polynomial at every column
+    all_cols = np.arange(img.shape[1])
+    standardized_all_cols = (all_cols - col_centroid) / col_scale
+    x_plane = np.polyval(x_coeffs, standardized_all_cols)[None, :]
+
+    # Subtract X-plane
+    leveled_img = img - x_plane
+
+    # ————— Y DIRECTION —————
+    # Compute row-wise mean over valid pixels after X subtraction
+    masked_for_rows = np.where(mask, leveled_img, np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        row_means = np.nanmean(masked_for_rows, axis=1)
+
+    valid_rows = ~np.isnan(row_means)
+    row_indices = np.flatnonzero(valid_rows)
+    if row_indices.size <= polyy:
+        # Not enough points to fit Y polynomial
+        return leveled_img
+
+    # Center & scale row indices
+    # replicate MATLAB centering
+    # mu = [mean(column_indices), std(column_indices)]
+    row_centroid = row_indices.mean()
+    row_scale = row_indices.std(ddof=1)
+    standardized_rows = (row_indices - row_centroid) / row_scale
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", np.RankWarning)
+        y_coeffs = np.polyfit(
+            standardized_rows,
+            row_means[valid_rows],
+            polyy,
+        )
+
+    # Evaluate polynomial at every row
+    all_rows = np.arange(img.shape[0])
+    standardized_all_rows = (all_rows - row_centroid) / row_scale
+    y_plane = np.polyval(y_coeffs, standardized_all_rows)[:, None]
+
+    # Subtract Y-plane
+    return leveled_img - y_plane
 
 
 def level_line(
     img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
 ) -> np.ndarray:
     """
-    Polynomial line leveling, correcting each row and column separately.
+    Polynomial line leveling, correcting each row and column separately,
+    with centered/scaled index fitting.
 
     Parameters
     ----------
     img : ndarray
         2D AFM image.
     mask : ndarray or None
-        Binary mask or weighting matrix.
+        Boolean mask of same shape as img (True = valid).
     polyx : int
-        Polynomial order for X direction.
+        Polynomial order for per-row fitting.
     polyy : int
-        Polynomial order for Y direction.
+        Polynomial order for per-column fitting.
 
     Returns
     -------
-    leveled : ndarray
+    leveled_img : ndarray
         The leveled image.
     """
     if mask is None:
         mask = ~np.isnan(img)
+    leveled_img = img.copy()
 
-    leveled = img.copy()
-
+    # ————— Per-row polynomial leveling —————
     if polyx > 0:
-        y2 = np.zeros_like(img)
-        failed_rows = []
-        for i in range(img.shape[0]):
-            pos = mask[i, :] > 0
-            if np.sum(pos) > polyx + 8:
-                x1 = np.arange(img.shape[1])[pos]
-                y1 = img[i, pos]
-                p = np.polyfit(x1, y1, polyx)
-                y2[i] = np.polyval(p, np.arange(img.shape[1]))
-                leveled[i, :] = img[i, :] - y2[i]
+        row_fits = np.zeros_like(img)
+        fallback_rows: list[int] = []
+
+        for row_idx in range(img.shape[0]):
+            valid_cols = mask[row_idx, :]
+            if valid_cols.sum() > polyx + 8:
+                col_indices = np.flatnonzero(valid_cols)
+                row_values = img[row_idx, col_indices]
+
+                # Center & scale col_indices
+                centroid_col = col_indices.mean()
+                scale_col = col_indices.std(ddof=1)
+                standardized_cols = (col_indices - centroid_col) / scale_col
+
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", np.RankWarning)
+                    row_coeffs = np.polyfit(
+                        standardized_cols, row_values, polyx
+                    )  # noqa
+
+                all_cols = np.arange(img.shape[1])
+                standardized_all_cols = (all_cols - centroid_col) / scale_col
+                fitted_row = np.polyval(row_coeffs, standardized_all_cols)
+
+                row_fits[row_idx, :] = fitted_row
+                leveled_img[row_idx, :] = img[row_idx, :] - fitted_row
             else:
-                failed_rows.append(i)
-        for i in failed_rows:
-            try:
-                leveled[i, :] = img[i, :] - np.median(y2, axis=0)
-            except Exception:
-                pass
+                fallback_rows.append(row_idx)
 
+        # For rows without enough points, subtract the median
+        # of all fitted rows
+        median_row_fit = np.median(row_fits, axis=0)
+        for row_idx in fallback_rows:
+            leveled_img[row_idx, :] = img[row_idx, :] - median_row_fit
+
+    # ————— Per-column polynomial leveling —————
     if polyy > 0:
-        for i in range(img.shape[1]):
-            col_mask = mask[:, i]
-            yp = img[:, i] * col_mask
-            valid = ~np.isnan(yp)
-            yl = np.arange(img.shape[0])[valid]
-            yf = yp[valid]
-            if len(yl) >= polyy:
-                p = np.polyfit(yl, yf, polyy)
-                fy = np.polyval(p, np.arange(img.shape[0]))
-                leveled[:, i] -= fy
+        for col_idx in range(img.shape[1]):
+            valid_rows = mask[:, col_idx]
+            if valid_rows.sum() >= polyy:
+                row_indices = np.flatnonzero(valid_rows)
+                col_values = img[row_indices, col_idx]
 
-    return leveled
+                # Center & scale row_indices
+                centroid_row = row_indices.mean()
+                scale_row = row_indices.std(ddof=1)
+                standardized_rows = (row_indices - centroid_row) / scale_row
+
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", np.RankWarning)
+                    col_coeffs = np.polyfit(
+                        standardized_rows, col_values, polyy
+                    )  # noqa
+
+                all_rows = np.arange(img.shape[0])
+                standardized_all_rows = (all_rows - centroid_row) / scale_row
+                fitted_col = np.polyval(col_coeffs, standardized_all_rows)
+
+                leveled_img[:, col_idx] -= fitted_col
+
+    return leveled_img
 
 
 def level_med_line(
@@ -405,9 +486,8 @@ def level(
         Polynomial order for X-direction leveling. Set to 0 to skip.
     polyy : int
         Polynomial order for Y-direction leveling. Set to 0 to skip.
-    method : {'plane', 'line', 'med_line', 'med_line_y', 'smed_line',
-            'mean_plane', 'log_y'}
-        Leveling or flattening method to apply.
+    method : str
+        Leveling method to apply.
     mask : ndarray, optional
         Binary mask or weighting matrix with same shape as `img`.
         If None, all pixels are considered valid.
@@ -416,41 +496,28 @@ def level(
     -------
     leveled : ndarray
         The leveled image or image stack, same shape as input.
-
-    Raises
-    ------
-    ValueError
-        If the provided method is not supported or mask shape does not match
-          img shape.
-
-    Notes
-    -----
-    This function dispatches to specialized leveling methods that replicate the
-    MATLAB NanoLocz library functionality. For 3D stacks, each frame is
-    processed independently.
-
-    The interpretation of `polyx` and `polyy` depends on the method:
-    - For 'plane' and 'line', they are polynomial fit orders.
-    - For 'log_y', `polyy` is a scaling factor for the log fit.
-    - For median-based methods, `polyx` may be used as a scaling factor.
     """
-    # Ensure input is ndarray
     img = np.asarray(img)
     is_stack = img.ndim == 3
-    frames = img if is_stack else img[None, ...]
 
-    if mask is None:
-        mask = ~np.isnan(frames)
+    # Convert to (N, H, W) for consistent processing
+    if is_stack:
+        frames = img
     else:
+        frames = img[np.newaxis, ...]  # shape (1, H, W)
+
+    if mask is not None:
         mask = np.asarray(mask)
-        if mask.shape != frames.shape:
+        if mask.ndim == 2:
+            mask = mask[np.newaxis, ...]  # shape (1, H, W)
+        elif mask.shape != frames.shape:
             raise ValueError("mask must have the same shape as img")
 
     leveled_frames = []
 
     for k in range(frames.shape[0]):
         f = frames[k]
-        m = mask[k]
+        m = mask[k] if mask is not None else None
 
         if method == "plane":
             leveled = level_plane(f, m, polyx, polyy)
@@ -471,5 +538,18 @@ def level(
 
         leveled_frames.append(leveled)
 
-    leveled_array = np.stack(leveled_frames)
-    return leveled_array if is_stack else leveled_array[0]
+    result = np.stack(leveled_frames, axis=0)
+
+    return result if is_stack else result[0]
+
+
+__all__ = [
+    "level",
+    "level_plane",
+    "level_line",
+    "level_med_line",
+    "level_med_line_y",
+    "level_smed_line",
+    "level_mean_plane",
+    "level_log_y",
+]
