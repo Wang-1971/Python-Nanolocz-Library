@@ -107,7 +107,8 @@ def level_plane(
     standardized_columns = (column_indices - col_centroid) / col_scale
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", np.RankWarning)
+        from numpy.polynomial.polyutils import RankWarning
+        warnings.simplefilter("ignore", RankWarning)
         # polyfit(..., polyx) with centering ⇒ same as MATLAB’s p, ~, mu
         x_coeffs = np.polyfit(
             standardized_columns,
@@ -144,7 +145,8 @@ def level_plane(
     standardized_rows = (row_indices - row_centroid) / row_scale
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", np.RankWarning)
+        from numpy.polynomial.polyutils import RankWarning
+        warnings.simplefilter("ignore", RankWarning)
         y_coeffs = np.polyfit(
             standardized_rows,
             row_means[valid_rows],
@@ -204,7 +206,8 @@ def level_line(
                 standardized_cols = (col_indices - centroid_col) / scale_col
 
                 with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", np.RankWarning)
+                    from numpy.polynomial.polyutils import RankWarning
+                    warnings.simplefilter("ignore", RankWarning)
                     row_coeffs = np.polyfit(
                         standardized_cols, row_values, polyx
                     )  # noqa
@@ -238,7 +241,8 @@ def level_line(
                 standardized_rows = (row_indices - centroid_row) / scale_row
 
                 with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", np.RankWarning)
+                    from numpy.polynomial.polyutils import RankWarning
+                    warnings.simplefilter("ignore", RankWarning)
                     col_coeffs = np.polyfit(
                         standardized_rows, col_values, polyy
                     )  # noqa
