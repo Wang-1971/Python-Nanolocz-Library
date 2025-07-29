@@ -585,7 +585,6 @@ def _compute_gauss_limits(image: np.ndarray, kind: str) -> tuple[float, float]:
 
 def level_auto(
     img_stack: np.ndarray,
-    frames: Sequence[int],
     routine: str,
 ) -> np.ndarray:
     """
@@ -595,8 +594,6 @@ def level_auto(
     ----------
     img_stack : ndarray
         AFM image stack. Shape can be (H, W) or (N, H, W).
-    frames : sequence of int
-        Indices of frames to process.
     routine : str
         Name of a routine defined in ROUTINES.
 
@@ -627,11 +624,10 @@ def level_auto(
     if routine not in ROUTINES:
         raise ValueError(f"Unknown routine '{routine}'")
 
-    if any(i < 0 or i >= img_stack.shape[0] for i in frames):
-        raise IndexError("One or more frame indices are out of bounds.")
-
     result = img_stack.copy()
     steps = ROUTINES[routine]
+
+    frames = range(img_stack.shape[0])
 
     for i in frames:
         img = result[i]
