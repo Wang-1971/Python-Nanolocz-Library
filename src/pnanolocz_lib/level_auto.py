@@ -57,7 +57,7 @@ from typing import Sequence, Dict, Any
 
 from scipy import stats
 
-from pnanolocz_lib.level import level
+from pnanolocz_lib.level import apply_level
 from pnanolocz_lib.thresholder import thresholder
 
 # Data‑driven routine definitions
@@ -65,13 +65,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Plane fit routine
     "plane-line": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 0,
             "method": "med_line",
@@ -80,7 +80,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Iterative 1 nm high threshold routine
     "iterative 1nm high": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
@@ -92,7 +92,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
@@ -104,13 +104,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 0,
             "method": "plane",
@@ -122,13 +122,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 0,
             "method": "plane",
@@ -137,7 +137,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Iterative 1 nm low threshold routine
     "iterative -1nm low": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
@@ -149,7 +149,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
@@ -161,13 +161,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 0,
             "method": "plane",
@@ -179,13 +179,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 0,
             "method": "plane",
@@ -194,7 +194,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Iterative 1 nm high and 1 nm low threshold routine
     "iterative high low": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
@@ -206,7 +206,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
@@ -218,13 +218,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 0,
             "method": "plane",
@@ -236,13 +236,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 0,
             "method": "plane",
@@ -251,7 +251,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Line level followered by Otsu threshold and a second line level
     "Line1 + Otsu Line2": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 0,
             "method": "line",
@@ -263,7 +263,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 0,
             "method": "line",
@@ -272,13 +272,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # High- low twice
     "high-low x2 (fit)": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
@@ -290,13 +290,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
@@ -305,13 +305,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Iterativly fit holes
     "iterative fit holes": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
@@ -323,13 +323,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
@@ -341,13 +341,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 0,
             "method": "line",
@@ -356,13 +356,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Iterativly fit peaks
     "iterative fit peaks": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
@@ -374,13 +374,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
@@ -392,13 +392,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 0,
             "method": "line",
@@ -409,7 +409,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Multi plane edges level 0uses level_weighted
     "multi-plane-edges": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
@@ -451,7 +451,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "mean_plane",
@@ -460,7 +460,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
     # Multi plane otsu level- uses level weighted
     "multi-plane-otsu": [
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 1,
             "polyy": 1,
             "method": "plane",
@@ -514,7 +514,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level,
+            "func": apply_level,
             "polyx": 0,
             "polyy": 0,
             "method": "mean_plane",
