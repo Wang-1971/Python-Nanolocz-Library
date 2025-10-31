@@ -38,7 +38,7 @@ pip install .
 ```python
 import numpy as np
 from pnanolocz_lib.level import apply_level
-from pnanolocz_lib.level_auto import level_auto
+from pnanolocz_lib.level_auto import apply_level_auto
 from pnanolocz_lib.thresholder import thresholder
 
 # 1) Polynomial plane leveling
@@ -47,7 +47,7 @@ flat = apply_level(img, 2, 2, method="plane")
 
 # 2) Automated multi‑frame pipeline
 stack = np.load("stack.npy")      # (N,H,W)
-out = level_auto(stack, frames=range(stack.shape[0]), routine="multi-plane-otsu")
+out = apply_level_auto(stack, routine="multi-plane-otsu")
 
 # 3) Otsu mask
 mask = thresholder(img, method="otsu", limits=None)
@@ -62,7 +62,7 @@ mask = thresholder(img, method="otsu", limits=None)
 
   Typical usage involves calling the `apply_level()` function with an image (2D)
   or image stack (3D) and specifying the desired method and polynomial orders.
-  (see Quickstart above for an example).
+  (see Quickstart above for an example)
 
     Available methods:
 

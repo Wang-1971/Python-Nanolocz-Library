@@ -26,16 +26,16 @@ Supported Routines
 
 Usage
 -----
->>> from pnanolocz_lib.filters.level_auto import level_auto
->>> result = level_auto(
+>>> from pnanolocz_lib.level_auto import apply_level_auto
+>>> result = apply_level_auto(
                 img_stack,
-                filter_frames=range(N),
                 routine="multi-plane-otsu"
             )
 
 Parameters
 ----------
-Refer to `level_auto` docstring below for detailed parameter descriptions.
+Refer to `apply_level_auto` docstring below for detailed parameter
+descriptions.
 
 Notes
 -----
@@ -583,7 +583,7 @@ def _compute_gauss_limits(image: np.ndarray, kind: str) -> tuple[float, float]:
         raise ValueError(f"Unknown fit kind {kind!r}")
 
 
-def level_auto(
+def apply_level_auto(
     img_stack: np.ndarray,
     routine: str,
 ) -> np.ndarray:
@@ -674,4 +674,4 @@ def level_auto(
     return result
 
 
-__all__ = ["level_auto", "ROUTINES"]
+__all__ = ["apply_level_auto", "ROUTINES"]
