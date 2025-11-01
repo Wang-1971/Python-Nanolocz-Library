@@ -22,8 +22,8 @@ Supported Leveling Methods
 - 'mean_plane'  : Global mean subtraction.
 - 'log_y'       : Logarithmic curve subtraction along the Y-axis.
 
-Typical usage involves calling the `level()` function with an image (2D) or
-image stack (3D) and specifying the desired method and polynomial orders.
+Typical usage involves calling the `apply_level()` function with an image (2D)
+or image stack (3D) and specifying the desired method and polynomial orders.
 
 The `get_background()` funciton generates the array of fitted lines without
 subtracting this from the image (i.e to visualise the background).
@@ -39,8 +39,8 @@ Examples
 Authors
 -------
 George Heath, University of Leeds (2025)
-Maya Tekchandani, UNiversity of Leeds (2025)
-D. E. Rollins, University of Leeds (2025)
+Maya Tekchandani, University of Leeds (2025)
+Daniel. E. Rollins, University of Leeds (2025)
 
 This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
@@ -463,7 +463,7 @@ def _log_y_correction(y: np.ndarray, scale: float) -> np.ndarray:
         return np.zeros_like(y)
 
 
-def level(
+def apply_level(
     img: np.ndarray,
     polyx: int,
     polyy: int,
@@ -479,8 +479,8 @@ def level(
     mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
-    Level or flatten AFM images or stacks using various polynomial and
-    median-based methods.
+    Apply a functiont to level or flatten AFM images or stacks using various
+    polynomial and median-based methods.
 
     Parameters
     ----------
@@ -632,7 +632,7 @@ def get_background(
 
 
 __all__ = [
-    "level",
+    "apply_level",
     "level_plane",
     "level_line",
     "level_med_line",

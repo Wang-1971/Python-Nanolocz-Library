@@ -37,17 +37,17 @@ pip install .
 
 ```python
 import numpy as np
-from pnanolocz_lib.level import level
-from pnanolocz_lib.level_auto import level_auto
+from pnanolocz_lib.level import apply_level
+from pnanolocz_lib.level_auto import apply_level_auto
 from pnanolocz_lib.thresholder import thresholder
 
 # 1) Polynomial plane leveling
 img = np.load("frame.npy")        # (H,W)
-flat = level(img, 2, 2, method="plane")
+flat = apply_level(img, 2, 2, method="plane")
 
 # 2) Automated multi‑frame pipeline
 stack = np.load("stack.npy")      # (N,H,W)
-out = level_auto(stack, frames=range(stack.shape[0]), routine="multi-plane-otsu")
+out = apply_level_auto(stack, routine="multi-plane-otsu")
 
 # 3) Otsu mask
 mask = thresholder(img, method="otsu", limits=None)
@@ -59,6 +59,10 @@ mask = thresholder(img, method="otsu", limits=None)
 
 - **`pnanolocz_lib.level`**  
   Core flattening / leveling (plane, line, median, smoothed, mean, log).
+
+  Typical usage involves calling the `apply_level()` function with an image (2D)
+  or image stack (3D) and specifying the desired method and polynomial orders.
+  (see Quickstart above for an example)
 
     Available methods:
 
@@ -110,7 +114,8 @@ mask = thresholder(img, method="otsu", limits=None)
 ## 📝 Citation
 
 If you use this library, please cite:
-Heath, G.R. et al. *NanoLocz: Image analysis platform for AFM, high‑speed AFM and localization AFM.* Small Methods 2024, 2301766. https://doi.org/10.1002/smtd.202301766
+Heath, G.R. et al. *NanoLocz: Image analysis platform for AFM, high‑speed AFM and localization AFM.*
+Small Methods 2024, 2301766. <https://doi.org/10.1002/smtd.202301766>
 
 ---
 
