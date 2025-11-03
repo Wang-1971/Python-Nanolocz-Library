@@ -588,7 +588,7 @@ def apply_level(
 
     result = np.stack(leveled_frames, axis=0)
 
-    return result if is_stack else result[0]
+    return np.asarray(result) if is_stack else np.asarray(result[0])
 
 
 def get_background(
@@ -672,7 +672,7 @@ def get_background(
 
     result = np.stack(background_frames, axis=0)
 
-    return result if is_stack else result[0]
+    return np.asarray(result) if is_stack else np.asarray(result[0])
 
 
 __all__ = [
