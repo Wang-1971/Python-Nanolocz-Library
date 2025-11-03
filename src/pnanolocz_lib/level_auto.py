@@ -1,6 +1,5 @@
 """
-Automated Multi-Frame Leveling Routines for AFM Data
-====================================================
+Automated multi-frame leveling routines for AFM data.
 
 This module implements automated, data-driven multi-frame leveling routines for
 Atomic Force Microscopy (AFM) image stacks. It applies sequences of background
@@ -52,9 +51,9 @@ D. E. Rollins, University of Leeds (2025)
 This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
-import numpy as np
-from typing import Sequence, Dict, Any
+from typing import Any, Dict, Sequence
 
+import numpy as np
 from scipy import stats
 
 from pnanolocz_lib.level import apply_level
@@ -670,8 +669,8 @@ def apply_level_auto(
         result[i] = img
 
     if was_2d:
-        return result[0]
-    return result
+        return np.asarray(result[0])
+    return np.asarray(result)
 
 
 __all__ = ["apply_level_auto", "ROUTINES"]

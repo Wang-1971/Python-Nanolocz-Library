@@ -1,6 +1,5 @@
 """
-AFM Image Flattening and Background Leveling Tools
-===================================================
+AFM image flattening and background leveling tools.
 
 This module provides background leveling and flattening routines for Atomic
 Force Microscopy (AFM) images and video stacks. It supports a range of
@@ -25,7 +24,7 @@ Supported Leveling Methods
 Typical usage involves calling the `apply_level()` function with an image (2D)
 or image stack (3D) and specifying the desired method and polynomial orders.
 
-The `get_background()` funciton generates the array of fitted lines without
+The `get_background()` function generates the array of fitted lines without
 subtracting this from the image (i.e to visualise the background).
 
 Examples
@@ -45,10 +44,11 @@ Daniel. E. Rollins, University of Leeds (2025)
 This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
-import numpy as np
-from numpy.polynomial.polyutils import RankWarning
 import warnings
-from typing import Optional, Literal
+from typing import Literal, Optional
+
+import numpy as np
+from numpy.polynomial.polyutils import RankWarning  # type: ignore
 from scipy.optimize import curve_fit
 
 # Constants
@@ -60,8 +60,9 @@ def level_plane(
     img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
 ) -> np.ndarray:
     """
-    Plane leveling fitting by subtracting polynomial curves in X and Y,
-    replicating MATLAB's centered polynomial approach.
+    Plane leveling fitting by subtracting polynomial curves in X and Y.
+
+    This attempts to replicate MATLAB's centered polynomial approach.
 
     Parameters
     ----------
@@ -85,7 +86,7 @@ def level_plane(
         mask = ~np.isnan(img)
     # Must have at least 6 valid pixels to fit anything
     if np.sum(mask) <= 5:
-        return img.copy()
+        return np.asarray(img.copy())
 
     # ————— X DIRECTION —————
     # Compute column-wise mean over valid pixels
@@ -98,7 +99,7 @@ def level_plane(
     column_indices = np.flatnonzero(valid_columns)
     if column_indices.size <= polyx:
         # Not enough points to fit X polynomial
-        return img.copy()
+        return np.asarray(img.copy())
 
     # Center & scale column indices
     # replicate MATLAB centering
@@ -165,8 +166,9 @@ def level_line(
     img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
 ) -> np.ndarray:
     """
-    Polynomial line leveling, correcting each row and column separately,
-    with centered/scaled index fitting.
+    Polynomial line leveling, correcting each row and column separately.
+
+    This uses centered/scaled index fitting.
 
     Parameters
     ----------
@@ -250,25 +252,29 @@ def level_line(
 
                 leveled_img[:, col_idx] -= fitted_col
 
-    return leveled_img
+    return np.asarray(leveled_img)
 
 
 def level_med_line(
-    img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
+    img: np.ndarray,
+    mask: Optional[np.ndarray],
+    polyx: int,
+    polyy: int,  # unused (MATLAB semantics)
 ) -> np.ndarray:
     """
-    Row-wise median line leveling.
+    Row-wise median line leveling for AFM images.
 
     Parameters
     ----------
     img : ndarray
         2D AFM image.
     mask : ndarray or None
-        Binary mask or weighting matrix.
+        Binary mask (1 = include pixel). If None, all non-NaN pixels are used.
     polyx : int
-        Used as a scale factor if > 0, otherwise 1.
+        Scaling factor for median subtraction.
+        If polyx == 0, scale factor is 1 (MATLAB behaviour).
     polyy : int
-        Unused.
+        Unused. Kept for interface compatibility.
 
     Returns
     -------
@@ -278,17 +284,26 @@ def level_med_line(
     if mask is None:
         mask = ~np.isnan(img)
 
+    # Masked image values
+    masked_img = np.where(mask > 0, img, np.nan)
+
+    # Global background (median of masked values)
+    bg = np.nanmedian(masked_img)
+
     leveled = img.copy()
-    bg = np.nanmedian(img[mask > 0])
+
+    # Effective scale: polyx or 1 if polyx == 0
+    scale = polyx if polyx > 0 else 1
 
     for i in range(img.shape[0]):
-        pos = ~np.isnan(img[i, :])
-        if np.sum(pos) > 10:
-            y1 = np.median(img[i, pos])
-            scale = polyx if polyx > 0 else 1
-            leveled[i, :] = img[i, :] - scale * y1 + bg
+        row = masked_img[i, :]
+        pos = ~np.isnan(row)
 
-    return leveled
+        if np.sum(pos) > 1:
+            row_median = np.nanmedian(row)
+            leveled[i, :] = img[i, :] - scale * row_median + bg
+
+    return np.asarray(leveled)
 
 
 def level_med_line_y(
@@ -325,7 +340,7 @@ def level_med_line_y(
             y1 = np.median(img[pos, i])
             leveled[:, i] = img[:, i] - y1 + bg
 
-    return leveled
+    return np.asarray(leveled)
 
 
 def level_smed_line(
@@ -370,7 +385,7 @@ def level_smed_line(
 
     leveled = img - (y1[:, None] - background2[:, None])
 
-    return leveled
+    return np.asarray(leveled)
 
 
 def level_mean_plane(
@@ -399,7 +414,7 @@ def level_mean_plane(
         mask = ~np.isnan(img)
 
     mean_val = np.nanmean(img[mask > 0])
-    return img - mean_val
+    return np.asarray(img - mean_val)
 
 
 def level_log_y(
@@ -426,7 +441,7 @@ def level_log_y(
     """
     y = np.mean(img, axis=1)
     correction = _log_y_correction(y, polyy)
-    return img - correction[::-1][:, None]
+    return np.asarray(img - correction[::-1][:, None])
 
 
 def _log_y_correction(y: np.ndarray, scale: float) -> np.ndarray:
@@ -451,7 +466,7 @@ def _log_y_correction(y: np.ndarray, scale: float) -> np.ndarray:
     x_fit = x[pos]
     y_fit = y[pos]
 
-    def _log_model(x, a, b, c):
+    def _log_model(x: np.ndarray, a: float, b: float, c: float) -> np.ndarray:
         return a * np.log(c * x + b)
 
     try:
@@ -479,8 +494,9 @@ def apply_level(
     mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
-    Apply a functiont to level or flatten AFM images or stacks using various
-    polynomial and median-based methods.
+    Apply a function to level or flatten AFM images or stacks.
+
+    This applies the various polynomial and median-based methods found in this module.
 
     Parameters
     ----------
@@ -564,8 +580,9 @@ def get_background(
     mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
-    Compute the background surface/lines that would be subtracted
-    by `level(...)`, without actually subtracting it.
+    Compute a background surface/lines that would be subtracted by `apply_level(...)`.
+
+    This does not apply the operation to the data.
 
     Parameters
     ----------
