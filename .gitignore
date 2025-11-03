@@ -30,3 +30,20 @@ env/
 
 # macOS
 .DS_Store
+
+# Ruff / linting cache
+.ruff_cache/
+
+# Test / coverage / CI artifacts
+htmlcov/
+.tox/
+.nox/
+.coverage*
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+.mypy_cache/
+.flake8

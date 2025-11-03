@@ -1,6 +1,9 @@
 # pnanolocz_lib 📦
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+![Pre-Commit](https://img.shields.io/github/actions/workflow/status/derollins/Python-Nanolocz-Library/pre-commit.yaml?label=pre-commit)
+![Tests](https://img.shields.io/github/actions/workflow/status/derollins/Python-Nanolocz-Library/tests.yaml?label=tests)
+[![codecov](https://codecov.io/gh/derollins/Python-Nanolocz-Library/branch/main/graph/badge.svg)](https://codecov.io/gh/derollins/Python-Nanolocz-Library)
 
 *A Python library for AFM image flattening, background leveling, and edge detection, based on the MATLAB NanoLocz platform.*
 
@@ -57,7 +60,7 @@ mask = thresholder(img, method="otsu", limits=None)
 
 ## 📖 Modules
 
-- **`pnanolocz_lib.level`**  
+- **`pnanolocz_lib.level`**
   Core flattening / leveling (plane, line, median, smoothed, mean, log).
 
   Typical usage involves calling the `apply_level()` function with an image (2D)
@@ -106,8 +109,8 @@ mask = thresholder(img, method="otsu", limits=None)
 | `high-low x2 (fit)`      | Two‑stage plane + median line leveling, with Gaussian‑fit histogram threshold in between.     |
 | `iterative fit holes`    | Iterative plane + median line leveling, masking “holes” via Gaussian‑fit low‑side threshold.  |
 | `iterative fit peaks`    | Iterative plane + median line leveling, masking “peaks” via Gaussian‑fit high‑side threshold. |
-| `multi-plane-edges`      | Not yet implimented.                                                                          |
-| `multi-plane-otsu`       | Not yet implimented.                                                                          |
+| `multi-plane-edges`      | Not yet implemented.                                                                          |
+| `multi-plane-otsu`       | Not yet implemented.                                                                          |
 
 ---
 

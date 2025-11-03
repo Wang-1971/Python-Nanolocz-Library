@@ -8,24 +8,123 @@ version = "0.1.0"
 description = "A Python library for AFM, HS-AFM, and Localization AFM data analysis. Based on NanoLocz"
 authors = [
     { name = "George Heath", email = "G.R.Heath@leeds.ac.uk" },
-    { name = "D. E. Rollins", email = "d.e.rollins@leeds.ac.uk"}
+    { name = "D. E. Rollins", email = "d.e.rollins@leeds.ac.uk" }
 ]
 readme = "README.md"
-license = {text = "GPL-3.0-or-later"}
-requires-python = ">=3.8"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
     "ruptures",
-    "sknw"
+    "sknw",
+    "scikit-image"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "pre-commit",
+    "isort",
+    "ruff",
+    "black",
+    "codespell>=2.3.0",
+    "mypy==1.11.1",
 ]
 
 [project.urls]
 Homepage = "https://github.com/derollins/NanoLocz-Matlab-Library"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+include = '\.pyi?$'
+
+exclude = '''
+(
+  ^\.git
+| ^\.hg
+| ^\.mypy_cache
+| ^\.tox
+| ^\.venv
+| ^_build
+| ^buck-out
+| ^build
+| ^dist
+| \.ipynb$
+)
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+combine_as_imports = true
+known_first_party = ["pnanolocz_lib"]
+known_third_party = ["numpy","scipy","matplotlib","skimage","ruptures","sknw"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+respect-gitignore = true
+src = ["src"]
+exclude = ["notebooks", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "D"]
+ignore = ["D100", "D104", "D203", "D212", "D401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.codespell]
+skip = "*.egg-info,*.png,*.jpg,*.jpeg,*.gif,*.bmp,*.svg,*.ico,*.pdf,*.zip,*.gz,*.bz2,*.xz,*.7z,*.mp3,*.wav,*.mp4,*.mov,*.tif,*.tiff,*.ipynb,docs/_build/*,build/*,dist/*"
+ignore-words-list = "tabel,crate"
+check-filenames = false
+check-hidden = false
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = ["src"]
+
+# Only check your library code; do not include tests here.
+files = ["src"]
+
+# Regular package (you created src/pnanolocz_lib/__init__.py)
+explicit_package_bases = false
+namespace_packages = false
+
+# Your existing strictness
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+exclude = '^tests/'
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "skimage.*", "ruptures", "sknw"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "--cov=pnanolocz_lib --cov-report=term-missing --cov-append"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["pnanolocz_lib"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError"
+]

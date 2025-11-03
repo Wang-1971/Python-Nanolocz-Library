@@ -1,6 +1,6 @@
+# mypy: disallow_untyped_calls = False
 """
-Image Thresholding and Edge Detection Tools for AFM Data
-========================================================
+Image thresholding and edge detection tools for AFM data.
 
 This module provides a unified interface for multiple thresholding and edge-
 detection methods applied to AFM images or stacks. Each method returns a mask
@@ -52,31 +52,34 @@ D. E. Rollins, University of Leeds (2025)
 This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
+from typing import Callable, TypeVar
+
 import numpy as np
 import ruptures as rpt
+import sknw
 from scipy.ndimage import gaussian_filter, sobel
 from skimage.filters import threshold_otsu
 from skimage.morphology import (
-    remove_small_objects,
     binary_closing,
     binary_dilation,
+    binary_erosion,
+    disk,
+    remove_small_objects,
     skeletonize,
     thin,
-    disk,
-    binary_erosion,
 )
-import sknw
-
 
 # Map method names to handler functions
 _METHOD_MAP = {}
 
+F = TypeVar("F", bound=Callable[..., np.ndarray])
 
-def _register(name):
+
+def _register(name: str) -> Callable[[F], F]:
     """Decorator to register a threshold method."""
 
-    def decorator(func):
-        _METHOD_MAP[name] = func
+    def decorator(func: F) -> F:
+        _METHOD_MAP[name.lower()] = func
         return func
 
     return decorator
@@ -136,7 +139,7 @@ def prune_skeleton_min_branch_length(
 
     # Reconstruct skeleton from graph edges
     pruned_skel = np.zeros_like(skel, dtype=bool)
-    for s, e, k, data in graph.edges(keys=True, data=True):
+    for _s, _e, _k, data in graph.edges(keys=True, data=True):
         pts = data["pts"]
         pruned_skel[pts[:, 0], pts[:, 1]] = True
 
@@ -145,7 +148,7 @@ def prune_skeleton_min_branch_length(
 
 @_register("selection")
 def selection(
-    img: np.ndarray, limits: tuple[float, float] | list | str | None = None
+    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
 ) -> np.ndarray:
     """
     Pass-through user-provided mask (interpreted as boolean).
@@ -168,7 +171,7 @@ def selection(
 
 @_register("histogram")
 def histogram(
-    img: np.ndarray, limits: tuple[float, float] | list | str | None = None
+    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
 ) -> np.ndarray:
     """
     Threshold image based on intensity limits.
@@ -192,14 +195,18 @@ def histogram(
     """
     if limits is None:
         raise ValueError("limits must be provided for histogram method")
-    low, high = limits
+    if isinstance(limits, (tuple, list)) and len(limits) == 2:
+        low, high = limits
+    else:
+        raise ValueError("limits must be a tuple or list of 2 elements")
+
     mask = (img >= low) & (img <= high)
     return to_nan_mask(mask)
 
 
 @_register("otsu")
 def otsu(
-    img: np.ndarray, limits: tuple[float, float] | list | str | None = None
+    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
 ) -> np.ndarray:
     """
     Apply single-level Otsu thresholding.
@@ -223,7 +230,7 @@ def otsu(
 
 @_register("auto edges")
 def auto_edges(
-    img: np.ndarray, limits: tuple[float, float] | list | str | None = None
+    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
 ) -> np.ndarray:
     """
     Detect edges using Sobel gradient and morphological filtering.
@@ -257,11 +264,10 @@ def auto_edges(
 @_register("hist edges")
 def hist_edges(
     img: np.ndarray,
-    limits: tuple[float, float] | list | str | None = None,
+    limits: tuple[float, float] | list[float] | str | None = None,
 ) -> np.ndarray:
     """
-    Detect edges by thresholding with histogram limits and morphological
-    operations.
+    Detect edges by thresholding with histogram limits and morphological operations.
 
     Parameters
     ----------
@@ -276,7 +282,11 @@ def hist_edges(
         Mask with NaNs on detected edges and 1 elsewhere.
     """
     sm = gaussian_filter(img, sigma=2)
-    low, high = limits
+    if isinstance(limits, (tuple, list)) and len(limits) == 2:
+        low, high = limits
+    else:
+        raise ValueError("limits must be a tuple or list of 2 elements")
+
     thresh_mask = (sm >= low) & (sm <= high)
     edges = np.zeros_like(img, dtype=bool)
 
@@ -290,7 +300,7 @@ def hist_edges(
 @_register("otsu edges")
 def otsu_edges(
     img: np.ndarray,
-    limits: tuple[float, float] | list | str | None = None,
+    limits: tuple[float, float] | list[float] | str | None = None,
 ) -> np.ndarray:
     """
     Detect edges after Otsu thresholding using morphological operations.
@@ -315,7 +325,7 @@ def otsu_edges(
         e = binary_erosion(~slice_) ^ ~slice_
         e = remove_small_objects(e, 100)
         e = ~remove_small_objects(~e, 50)
-        return binary_dilation(e, footprint=disk(3))
+        return np.asarray(binary_dilation(e, footprint=disk(3)))
 
     edges = process_slice(binary)
 
@@ -324,7 +334,7 @@ def otsu_edges(
 
 @_register("otsu skel")
 def otsu_skel(
-    img: np.ndarray, limits: tuple[float, float] | list | str | None = None
+    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
 ) -> np.ndarray:
     """
     Skeletonize regions selected by Otsu thresholding.
@@ -348,7 +358,7 @@ def otsu_skel(
     binary = ~(sm <= thresh)
     mbl = 10  # Minimum branch length
 
-    def _process_slice(slice_):
+    def _process_slice(slice_: np.ndarray) -> np.ndarray:
         labeled = label(slice_)
         thin_mask = thin(labeled)
         skel = skeletonize(thin_mask)
@@ -357,7 +367,7 @@ def otsu_skel(
         pruned = prune_skeleton_min_branch_length(skel, min_branch_length=mbl)
 
         # Optional further cleaning similar to bwmorph spur/clean
-        return binary_dilation(pruned)
+        return np.asarray(binary_dilation(pruned))
 
     skeleton = _process_slice(binary)
 
@@ -366,7 +376,7 @@ def otsu_skel(
 
 @_register("hist skel")
 def hist_skel(
-    img: np.ndarray, limits: tuple[float, float] | list | str | None = None
+    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
 ) -> np.ndarray:
     """
     Skeletonize regions selected by histogram thresholding.
@@ -386,11 +396,15 @@ def hist_skel(
     from skimage.measure import label
 
     sm = gaussian_filter(img, sigma=2)
-    low, high = limits
+    if isinstance(limits, (tuple, list)) and len(limits) == 2:
+        low, high = limits
+    else:
+        raise ValueError("limits must be a tuple or list of 2 elements")
+
     binary = ~((sm >= low) & (sm <= high))
     mbl = 10  # Minimum branch length
 
-    def _process_slice(slice_):
+    def _process_slice(slice_: np.ndarray) -> np.ndarray:
         labeled = label(slice_)
         thin_mask = thin(labeled)
         skel = skeletonize(thin_mask)
@@ -400,7 +414,7 @@ def hist_skel(
 
         # Optional further cleaning here if desired
 
-        return binary_dilation(pruned)
+        return np.asarray(binary_dilation(pruned))
 
     skeleton = _process_slice(binary)
 
@@ -409,7 +423,7 @@ def hist_skel(
 
 @_register("line_step")
 def line_step(
-    img: np.ndarray, limits: tuple[float, float] | list | str | None = None
+    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
 ) -> np.ndarray:
     """
     Detect step changes along each row using PELT change point detection.
@@ -428,7 +442,13 @@ def line_step(
         Mask with detected step regions marked as 1 and NaN elsewhere.
     """
     mask = np.full_like(img, np.nan, dtype=float)
-    threshold = limits[1]
+    if limits is None:
+        raise ValueError("limits must be provided")
+
+    if isinstance(limits, (tuple, list)):
+        threshold = limits[1]
+    else:
+        raise TypeError("limits must be a tuple or list of floats")
 
     for j in range(img.shape[0]):
         x = img[j, :]
@@ -459,7 +479,7 @@ def line_step(
 def thresholder(
     img: np.ndarray,
     method: str,
-    limits: tuple[float, float] | list | str | None = None | list | str,
+    limits: tuple[float, float] | list[float] | str | list[float] | str | None = None,
     invert: bool = False,
 ) -> np.ndarray:
     """
@@ -487,9 +507,10 @@ def thresholder(
 
     func = _METHOD_MAP[method]
 
+    result: np.ndarray
     # Handle 3D stacks frame-by-frame
     if img.ndim == 3:
-        masks = [func(frame, limits) for frame in img]
+        masks: list[np.ndarray] = [func(frame, limits) for frame in img]
         result = np.stack(masks)
     else:
         result = func(img, limits)
