@@ -35,7 +35,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/derollins/NanoLocz-Matlab-Library"
+Homepage = "https://github.com/derollins/Python-Nanolocz-Library"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

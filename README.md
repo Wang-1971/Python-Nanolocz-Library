@@ -29,8 +29,8 @@ pip install pnanolocz_lib
 Or clone & install locally:
 
 ```bash
-git clone https://github.com/derollins/Pyhton-Nanolocz-Library.git
-cd Pyhton-Nanolocz-Library
+git clone https://github.com/derollins/Python-Nanolocz-Library.git
+cd Python-Nanolocz-Library
 pip install .
 ```
 
