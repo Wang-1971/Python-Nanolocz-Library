@@ -71,7 +71,6 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Image Processing",
 ]
 
-
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
@@ -92,6 +91,9 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools_scm]
+write_to = "src/pnanolocz_lib/_version.py"
 
 [tool.black]
 line-length = 88
