@@ -47,7 +47,6 @@ repos:
       - id: mypy
         args:
           - "--config-file=pyproject.toml"
-          - "src"
         additional_dependencies:
           - numpy
           - types-setuptools
