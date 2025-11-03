@@ -452,10 +452,10 @@ def level_log_y(
     y = np.mean(img, axis=1)
     correction = _log_y_correction(y, polyy)
 
-    def _apply(img_, corr, rev: bool):
+    def _apply(img_: np.ndarray, corr: np.ndarray, rev: bool) -> np.ndarray:
         if rev:
             corr = corr[::-1]
-        return img_ - corr[:, None]
+        return np.asarray(img_ - corr[:, None])
 
     if orientation == "normal":
         return np.asarray(_apply(img, correction, rev=False))

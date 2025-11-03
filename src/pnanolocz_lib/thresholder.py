@@ -1,3 +1,4 @@
+# mypy: disallow_untyped_calls = False
 """
 Image thresholding and edge detection tools for AFM data.
 

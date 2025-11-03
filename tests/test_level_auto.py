@@ -23,7 +23,7 @@ def test_routines_contains_expected_names():
 
 
 def test_compute_gauss_limits_fit_band_is_mu_pm_1p5_sigma():
-    """Returns limits close to μ ± 1.5σ for 'gauss_fit' with NaN-tolerant fit."""
+    """Returns limits close to μ ± 1.5sigma for 'gauss_fit' with NaN-tolerant fit."""
     rng = np.random.default_rng(0)
     # Target μ ≈ 5, σ ≈ 2 with some NaNs sprinkled in
     base = rng.normal(loc=5.0, scale=2.0, size=30_000)

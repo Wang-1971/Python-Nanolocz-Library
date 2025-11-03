@@ -31,8 +31,6 @@ repos:
       - id: ruff
         args: ["--fix"]
         exclude: ^(docs/|notebooks/|LICENSE)$
-      - id: ruff-format
-        language_version: python3
 
   # --- Black Code Formatter ---
   - repo: https://github.com/psf/black
@@ -48,9 +46,8 @@ repos:
     hooks:
       - id: mypy
         args:
-          - "--ignore-missing-imports"
-          - "--pretty"
-        language_version: python3
+          - "--config-file=pyproject.toml"
+          - "src"
         additional_dependencies:
           - numpy
           - types-setuptools
