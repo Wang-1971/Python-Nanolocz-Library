@@ -1,9 +1,9 @@
 # pnanolocz_lib 📦
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-![Pre-Commit](https://img.shields.io/github/actions/workflow/status/derollins/Python-Nanolocz-Library/pre-commit.yaml?label=pre-commit)
-![Tests](https://img.shields.io/github/actions/workflow/status/derollins/Python-Nanolocz-Library/tests.yaml?label=tests)
-[![codecov](https://codecov.io/gh/derollins/Python-Nanolocz-Library/branch/main/graph/badge.svg)](https://codecov.io/gh/derollins/Python-Nanolocz-Library)
+![Pre-Commit](https://img.shields.io/github/actions/workflow/status/derollins/Python-Nanolocz-Library/pre-commit.yaml?branch=main&label=pre-commi)
+![Tests](https://img.shields.io/github/actions/workflow/status/derollins/Python-Nanolocz-Library/tests.yaml?branch=main&label=tests)
+[![codecov](https://codecov.io/gh/derollins/Python-Nanolocz-Library/graph/badge.svg?token=W5NkAxjlmX)](https://codecov.io/gh/derollins/Python-Nanolocz-Library)
 
 *A Python library for AFM image flattening, background leveling, and edge detection, based on the MATLAB NanoLocz platform.*
 
