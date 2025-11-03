@@ -418,7 +418,12 @@ def level_mean_plane(
 
 
 def level_log_y(
-    img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
+    img: np.ndarray,
+    mask: Optional[np.ndarray],
+    polyx: int,
+    polyy: int,
+    *,
+    orientation: str = "auto",  # "auto" | "normal" | "reverse"
 ) -> np.ndarray:
     """
     Logarithmic curve subtraction along the Y-axis.
@@ -428,11 +433,16 @@ def level_log_y(
     img : ndarray
         2D AFM image.
     mask : ndarray or None
-        Binary mask or weighting matrix (unused here).
+        Unused here; kept for interface consistency.
     polyx : int
         Unused.
     polyy : int
-        Scale factor for the X-axis in log fit.
+        Scale factor for the X-axis used in log fitting.
+    orientation : {"auto","normal","reverse"}, default "auto"
+        - "normal"  : subtract correction[:, None]
+        - "reverse" : subtract correction[::-1][:, None]  (legacy behaviour)
+        - "auto"    : try both and choose the one that reduces the
+                      row-mean dynamic range most.
 
     Returns
     -------
@@ -441,7 +451,23 @@ def level_log_y(
     """
     y = np.mean(img, axis=1)
     correction = _log_y_correction(y, polyy)
-    return np.asarray(img - correction[::-1][:, None])
+
+    def _apply(img_, corr, rev: bool):
+        if rev:
+            corr = corr[::-1]
+        return img_ - corr[:, None]
+
+    if orientation == "normal":
+        return np.asarray(_apply(img, correction, rev=False))
+    if orientation == "reverse":
+        return np.asarray(_apply(img, correction, rev=True))
+
+    # "auto": choose orientation that best flattens row means
+    cand1 = _apply(img, correction, rev=False)
+    cand2 = _apply(img, correction, rev=True)
+    rng1 = np.ptp(cand1.mean(axis=1))
+    rng2 = np.ptp(cand2.mean(axis=1))
+    return np.asarray(cand1 if rng1 <= rng2 else cand2)
 
 
 def _log_y_correction(y: np.ndarray, scale: float) -> np.ndarray:
@@ -530,8 +556,9 @@ def apply_level(
     if mask is not None:
         mask = np.asarray(mask)
         if mask.ndim == 2:
-            mask = mask[np.newaxis, ...]  # shape (1, H, W)
-        elif mask.shape != frames.shape:
+            mask = mask[np.newaxis, ...]  # promote to (1, H, W) for single image
+        # Always validate shape after any promotion
+        if mask.shape != frames.shape:
             raise ValueError("mask must have the same shape as img")
 
     leveled_frames = []
@@ -615,10 +642,10 @@ def get_background(
     if mask is not None:
         mask = np.asarray(mask)
         if mask.ndim == 2:
-            mask = mask[np.newaxis, ...]  # shape (1, H, W)
-        elif mask.shape != frames.shape:
+            mask = mask[np.newaxis, ...]  # promote to (1, H, W) for single image
+        # Always validate shape after any promotion
+        if mask.shape != frames.shape:
             raise ValueError("mask must have the same shape as img")
-
     background_frames = []
 
     for idx in range(frames.shape[0]):
