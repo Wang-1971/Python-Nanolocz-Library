@@ -140,7 +140,7 @@ ignore = ["D100", "D104", "D203", "D212", "D401"]
 convention = "numpy"
 
 [tool.codespell]
-skip = "*.egg-info,*.png,*.jpg,*.jpeg,*.gif,*.bmp,*.svg,*.ico,*.pdf,*.zip,*.gz,*.bz2,*.xz,*.7z,*.mp3,*.wav,*.mp4,*.mov,*.tif,*.tiff,*.ipynb,docs/_build/*,build/*,dist/*"
+skip = "*.egg-info,*.png,*.jpg,*.jpeg,*.gif,*.bmp,*.svg,*.ico,*.pdf,*.zip,*.gz,*.bz2,*.xz,*.7z,*.mp3,*.wav,*.mp4,*.mov,*.tif,*.tiff,*.ipynb,docs/_build/*,build/*,dist/*,*.html,*.css,*.js"
 ignore-words-list = "tabel,crate"
 check-filenames = false
 check-hidden = false
