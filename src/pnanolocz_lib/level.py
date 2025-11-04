@@ -9,7 +9,7 @@ topographic data.
 
 The functions here were ported from the original MATLAB NanoLocz Library, and
 maintain compatibility with high-speed AFM, localization AFM, and static
-imaging data.
+imaging data. (<https://github.com/George-R-Heath/NanoLocz-Matlab-Library/>)
 
 Supported Leveling Methods
 --------------------------
@@ -45,10 +45,10 @@ This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
 import warnings
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
-from numpy.polynomial.polyutils import RankWarning  # type: ignore
+from numpy.polynomial.polyutils import RankWarning
 from scipy.optimize import curve_fit
 
 # Constants
@@ -57,8 +57,11 @@ LOG_FIT_BOUNDS = ([0.1, 0.01, 0.1], [1000, 20, 100])
 
 
 def level_plane(
-    img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
+    polyx: int,
+    polyy: int,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Plane leveling fitting by subtracting polynomial curves in X and Y.
 
@@ -136,7 +139,7 @@ def level_plane(
     row_indices = np.flatnonzero(valid_rows)
     if row_indices.size <= polyy:
         # Not enough points to fit Y polynomial
-        return leveled_img
+        return np.asarray(leveled_img)
 
     # Center & scale row indices
     # replicate MATLAB centering
@@ -159,12 +162,15 @@ def level_plane(
     y_plane = np.polyval(y_coeffs, standardized_all_rows)[:, None]
 
     # Subtract Y-plane
-    return leveled_img - y_plane
+    return np.asarray(leveled_img - y_plane)
 
 
 def level_line(
-    img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
+    polyx: int,
+    polyy: int,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Polynomial line leveling, correcting each row and column separately.
 
@@ -256,11 +262,11 @@ def level_line(
 
 
 def level_med_line(
-    img: np.ndarray,
-    mask: Optional[np.ndarray],
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
     polyx: int,
     polyy: int,  # unused (MATLAB semantics)
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Row-wise median line leveling for AFM images.
 
@@ -307,8 +313,11 @@ def level_med_line(
 
 
 def level_med_line_y(
-    img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
+    polyx: int,
+    polyy: int,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Column-wise median line leveling.
 
@@ -344,8 +353,11 @@ def level_med_line_y(
 
 
 def level_smed_line(
-    img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
+    polyx: int,
+    polyy: int,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Smoothed median line subtraction.
 
@@ -389,8 +401,11 @@ def level_smed_line(
 
 
 def level_mean_plane(
-    img: np.ndarray, mask: Optional[np.ndarray], polyx: int, polyy: int
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
+    polyx: int,
+    polyy: int,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Mean plane subtraction.
 
@@ -418,13 +433,13 @@ def level_mean_plane(
 
 
 def level_log_y(
-    img: np.ndarray,
-    mask: Optional[np.ndarray],
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
     polyx: int,
     polyy: int,
     *,
     orientation: str = "auto",  # "auto" | "normal" | "reverse"
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Logarithmic curve subtraction along the Y-axis.
 
@@ -452,7 +467,11 @@ def level_log_y(
     y = np.mean(img, axis=1)
     correction = _log_y_correction(y, polyy)
 
-    def _apply(img_: np.ndarray, corr: np.ndarray, rev: bool) -> np.ndarray:
+    def _apply(
+        img_: np.ndarray[Any, np.dtype[np.float64]],
+        corr: np.ndarray[Any, np.dtype[np.float64]],
+        rev: bool,
+    ) -> np.ndarray[Any, np.dtype[np.float64]]:
         if rev:
             corr = corr[::-1]
         return np.asarray(img_ - corr[:, None])
@@ -470,7 +489,9 @@ def level_log_y(
     return np.asarray(cand1 if rng1 <= rng2 else cand2)
 
 
-def _log_y_correction(y: np.ndarray, scale: float) -> np.ndarray:
+def _log_y_correction(
+    y: np.ndarray[Any, np.dtype[Any]], scale: float
+) -> np.ndarray[Any, np.dtype[Any]]:
     """
     Fit and return a logarithmic correction curve.
 
@@ -492,8 +513,10 @@ def _log_y_correction(y: np.ndarray, scale: float) -> np.ndarray:
     x_fit = x[pos]
     y_fit = y[pos]
 
-    def _log_model(x: np.ndarray, a: float, b: float, c: float) -> np.ndarray:
-        return a * np.log(c * x + b)
+    def _log_model(
+        x: np.ndarray[Any, np.dtype[Any]], a: float, b: float, c: float
+    ) -> np.ndarray[Any, np.dtype[Any]]:
+        return np.asarray(a * np.log(c * x + b))
 
     try:
         popt, _ = curve_fit(
@@ -505,7 +528,7 @@ def _log_y_correction(y: np.ndarray, scale: float) -> np.ndarray:
 
 
 def apply_level(
-    img: np.ndarray,
+    img: np.ndarray[Any, np.dtype[np.float64]],
     polyx: int,
     polyy: int,
     method: Literal[
@@ -517,8 +540,8 @@ def apply_level(
         "mean_plane",
         "log_y",
     ],
-    mask: Optional[np.ndarray] = None,
-) -> np.ndarray:
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]] = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Apply a function to level or flatten AFM images or stacks.
 
@@ -592,7 +615,7 @@ def apply_level(
 
 
 def get_background(
-    img: np.ndarray,
+    img: np.ndarray[Any, np.dtype[np.float64]],
     polyx: int,
     polyy: int,
     method: Literal[
@@ -604,8 +627,8 @@ def get_background(
         "mean_plane",
         "log_y",
     ],
-    mask: Optional[np.ndarray] = None,
-) -> np.ndarray:
+    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]] = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Compute a background surface/lines that would be subtracted by `apply_level(...)`.
 

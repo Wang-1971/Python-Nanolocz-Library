@@ -163,7 +163,13 @@ disallow_untyped_defs = true
 exclude = '^tests/'
 
 [[tool.mypy.overrides]]
-module = ["scipy.*", "skimage.*", "ruptures", "sknw"]
+module = [
+    "scipy.*",
+    "skimage.*",
+    "ruptures",
+    "sknw",
+    "numpy.*"
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

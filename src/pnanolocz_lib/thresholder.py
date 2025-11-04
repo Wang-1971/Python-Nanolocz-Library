@@ -52,7 +52,7 @@ D. E. Rollins, University of Leeds (2025)
 This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 import numpy as np
 import ruptures as rpt
@@ -72,7 +72,7 @@ from skimage.morphology import (
 # Map method names to handler functions
 _METHOD_MAP = {}
 
-F = TypeVar("F", bound=Callable[..., np.ndarray])
+F = TypeVar("F", bound=Callable[..., np.ndarray[Any, np.dtype[Any]]])
 
 
 def _register(name: str) -> Callable[[F], F]:
@@ -85,7 +85,9 @@ def _register(name: str) -> Callable[[F], F]:
     return decorator
 
 
-def to_nan_mask(binary_mask: np.ndarray) -> np.ndarray:
+def to_nan_mask(
+    binary_mask: np.ndarray[Any, np.dtype[Any]],
+) -> np.ndarray[Any, np.dtype[Any]]:
     """
     Convert a boolean mask to a float mask with NaNs in False positions.
 
@@ -96,7 +98,7 @@ def to_nan_mask(binary_mask: np.ndarray) -> np.ndarray:
 
     Returns
     -------
-    np.ndarray
+    mask : np.ndarray
         Float array where True becomes 1.0 and False becomes NaN.
     """
     mask = binary_mask.astype(float)
@@ -105,21 +107,21 @@ def to_nan_mask(binary_mask: np.ndarray) -> np.ndarray:
 
 
 def prune_skeleton_min_branch_length(
-    skel: np.ndarray, min_branch_length: int
-) -> np.ndarray:
+    skel: np.ndarray[Any, np.dtype[Any]], min_branch_length: int
+) -> np.ndarray[Any, np.dtype[Any]]:
     """
-    Prune branches shorter than min_branch_length from a skeleton image.
+    Prune branches shorter than `min_branch_length` from a skeleton image.
 
     Parameters
     ----------
-    skel : ndarray
+    skel : np.ndarray
         Binary skeleton image (bool or 0/1).
     min_branch_length : int
         Minimum branch length to keep.
 
     Returns
     -------
-    pruned_skel : ndarray
+    pruned_skel : np.ndarray
         Binary skeleton with short branches removed.
     """
     # Build graph from skeleton
@@ -148,8 +150,9 @@ def prune_skeleton_min_branch_length(
 
 @_register("selection")
 def selection(
-    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    limits: tuple[float, float] | list[float] | str | None = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Pass-through user-provided mask (interpreted as boolean).
 
@@ -171,8 +174,9 @@ def selection(
 
 @_register("histogram")
 def histogram(
-    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    limits: tuple[float, float] | list[float] | str | None = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Threshold image based on intensity limits.
 
@@ -206,8 +210,9 @@ def histogram(
 
 @_register("otsu")
 def otsu(
-    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    limits: tuple[float, float] | list[float] | str | None = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Apply single-level Otsu thresholding.
 
@@ -230,8 +235,9 @@ def otsu(
 
 @_register("auto edges")
 def auto_edges(
-    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    limits: tuple[float, float] | list[float] | str | None = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Detect edges using Sobel gradient and morphological filtering.
 
@@ -263,9 +269,9 @@ def auto_edges(
 
 @_register("hist edges")
 def hist_edges(
-    img: np.ndarray,
+    img: np.ndarray[Any, np.dtype[np.float64]],
     limits: tuple[float, float] | list[float] | str | None = None,
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Detect edges by thresholding with histogram limits and morphological operations.
 
@@ -299,9 +305,9 @@ def hist_edges(
 
 @_register("otsu edges")
 def otsu_edges(
-    img: np.ndarray,
+    img: np.ndarray[Any, np.dtype[np.float64]],
     limits: tuple[float, float] | list[float] | str | None = None,
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Detect edges after Otsu thresholding using morphological operations.
 
@@ -321,7 +327,9 @@ def otsu_edges(
     thresh = threshold_otsu(sm)
     binary = sm <= thresh
 
-    def process_slice(slice_: np.ndarray) -> np.ndarray:
+    def process_slice(
+        slice_: np.ndarray[tuple[int, int], np.dtype[np.bool_]],
+    ) -> np.ndarray[tuple[int, int], np.dtype[np.float64]]:
         e = binary_erosion(~slice_) ^ ~slice_
         e = remove_small_objects(e, 100)
         e = ~remove_small_objects(~e, 50)
@@ -334,8 +342,9 @@ def otsu_edges(
 
 @_register("otsu skel")
 def otsu_skel(
-    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    limits: tuple[float, float] | list[float] | str | None = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Skeletonize regions selected by Otsu thresholding.
 
@@ -358,7 +367,9 @@ def otsu_skel(
     binary = ~(sm <= thresh)
     mbl = 10  # Minimum branch length
 
-    def _process_slice(slice_: np.ndarray) -> np.ndarray:
+    def _process_slice(
+        slice_: np.ndarray[tuple[int, int], np.dtype[np.bool_]],
+    ) -> np.ndarray[tuple[int, int], np.dtype[np.float64]]:
         labeled = label(slice_)
         thin_mask = thin(labeled)
         skel = skeletonize(thin_mask)
@@ -376,8 +387,9 @@ def otsu_skel(
 
 @_register("hist skel")
 def hist_skel(
-    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    limits: tuple[float, float] | list[float] | str | None = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Skeletonize regions selected by histogram thresholding.
 
@@ -404,7 +416,9 @@ def hist_skel(
     binary = ~((sm >= low) & (sm <= high))
     mbl = 10  # Minimum branch length
 
-    def _process_slice(slice_: np.ndarray) -> np.ndarray:
+    def _process_slice(
+        slice_: np.ndarray[tuple[int, int], np.dtype[np.bool_]],
+    ) -> np.ndarray[tuple[int, int], np.dtype[np.float64]]:
         labeled = label(slice_)
         thin_mask = thin(labeled)
         skel = skeletonize(thin_mask)
@@ -423,8 +437,9 @@ def hist_skel(
 
 @_register("line_step")
 def line_step(
-    img: np.ndarray, limits: tuple[float, float] | list[float] | str | None = None
-) -> np.ndarray:
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    limits: tuple[float, float] | list[float] | str | None = None,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Detect step changes along each row using PELT change point detection.
 
@@ -477,11 +492,11 @@ def line_step(
 
 
 def thresholder(
-    img: np.ndarray,
+    img: np.ndarray[Any, np.dtype[np.float64]],
     method: str,
-    limits: tuple[float, float] | list[float] | str | list[float] | str | None = None,
+    limits: tuple[float, float] | list[float] | str | None = None,
     invert: bool = False,
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Apply a thresholding or edge detection method to an image or stack.
 
@@ -507,10 +522,12 @@ def thresholder(
 
     func = _METHOD_MAP[method]
 
-    result: np.ndarray
+    result: np.ndarray[Any, np.dtype[np.float64]]
     # Handle 3D stacks frame-by-frame
     if img.ndim == 3:
-        masks: list[np.ndarray] = [func(frame, limits) for frame in img]
+        masks: list[np.ndarray[Any, np.dtype[np.float64]]] = [
+            func(frame, limits) for frame in img
+        ]
         result = np.stack(masks)
     else:
         result = func(img, limits)

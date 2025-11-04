@@ -57,6 +57,7 @@ import numpy as np
 from scipy import stats
 
 from pnanolocz_lib.level import apply_level
+from pnanolocz_lib.level_weighted import apply_level_weighted
 from pnanolocz_lib.thresholder import thresholder
 
 # Data‑driven routine definitions
@@ -403,8 +404,6 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "method": "line",
         },
     ],
-}
-"""
     # Multi plane edges level 0uses level_weighted
     "multi-plane-edges": [
         {
@@ -420,7 +419,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level_weighted,
+            "func": apply_level_weighted,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
@@ -432,13 +431,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level_weighted,
+            "func": apply_level_weighted,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
         },
         {
-            "func": level_weighted,
+            "func": apply_level_weighted,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
@@ -471,7 +470,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level_weighted,
+            "func": apply_level_weighted,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
@@ -483,7 +482,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level_weighted,
+            "func": apply_level_weighted,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
@@ -495,13 +494,13 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "invert": False,
         },
         {
-            "func": level_weighted,
+            "func": apply_level_weighted,
             "polyx": 2,
             "polyy": 2,
             "method": "plane",
         },
         {
-            "func": level_weighted,
+            "func": apply_level_weighted,
             "polyx": 0,
             "polyy": 0,
             "method": "med_line",
@@ -519,12 +518,12 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "method": "mean_plane",
         },
     ],
-
 }
-"""
 
 
-def _compute_gauss_limits(image: np.ndarray, kind: str) -> tuple[float, float]:
+def _compute_gauss_limits(
+    image: np.ndarray[Any, np.dtype[np.float64]], kind: str
+) -> tuple[float, float]:
     """
     Compute intensity threshold limits from a Gaussian fit to the image data.
 
@@ -583,9 +582,9 @@ def _compute_gauss_limits(image: np.ndarray, kind: str) -> tuple[float, float]:
 
 
 def apply_level_auto(
-    img_stack: np.ndarray,
+    img_stack: np.ndarray[Any, np.dtype[np.float64]],
     routine: str,
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Apply leveling "routines" across specified frames of an AFM image stack.
 
@@ -635,7 +634,6 @@ def apply_level_auto(
         for step in steps:
             func = step["func"]
             params = {k: v for k, v in step.items() if k != "func"}
-
             if func is thresholder:
                 method = params["method"]
                 args = params.get("args", None)
