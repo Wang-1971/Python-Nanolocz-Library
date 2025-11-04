@@ -56,9 +56,9 @@ if TYPE_CHECKING:
     from numpy import RankWarning
 else:
     try:
-        from numpy import RankWarning  # type: ignore[attr-defined]
+        from numpy.polynomial.polyutils import RankWarning  # type: ignore
     except Exception:
-        from numpy.polynomial.polyutils import RankWarning  # type: ignore[attr-defined]
+        RankWarning = Warning
 
 # Constants
 SMOOTHING_WINDOW = 10

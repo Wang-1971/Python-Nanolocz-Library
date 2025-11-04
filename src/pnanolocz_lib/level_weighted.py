@@ -45,9 +45,10 @@ if TYPE_CHECKING:
     from numpy import RankWarning
 else:
     try:
-        from numpy import RankWarning  # type: ignore[attr-defined]
+        from numpy.polynomial.polyutils import RankWarning  # type: ignore
     except Exception:
-        from numpy.polynomial.polyutils import RankWarning  # type: ignore[attr-defined]
+        RankWarning = Warning
+
 
 # ---------------------
 # Low-level helpers
@@ -569,7 +570,7 @@ def level_weighted_line(
 
         leveled_image = leveled_image - col_background
 
-    return leveled_image
+    return np.asarray(leveled_image)
 
 
 def level_weighted_med_line(
