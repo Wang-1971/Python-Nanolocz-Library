@@ -36,19 +36,11 @@ Daniel E. Rollins, University of Leeds (2025)
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
+from numpy.polynomial.polyutils import RankWarning  # type: ignore[attr-defined]
 from scipy import ndimage
-
-if TYPE_CHECKING:
-    from numpy import RankWarning
-else:
-    try:
-        from numpy.polynomial.polyutils import RankWarning  # type: ignore
-    except Exception:
-        RankWarning = Warning
-
 
 # ---------------------
 # Low-level helpers
