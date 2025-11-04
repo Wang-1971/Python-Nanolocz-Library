@@ -44,12 +44,21 @@ Daniel. E. Rollins, University of Leeds (2025)
 This module is part of the pNanoLocz-Lib Python library for AFM analysis.
 """
 
+from __future__ import annotations
+
 import warnings
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import numpy as np
-from numpy.polynomial.polyutils import RankWarning
 from scipy.optimize import curve_fit
+
+if TYPE_CHECKING:
+    from numpy import RankWarning
+else:
+    try:
+        from numpy import RankWarning  # type: ignore[attr-defined]
+    except Exception:
+        from numpy.polynomial.polyutils import RankWarning  # type: ignore[attr-defined]
 
 # Constants
 SMOOTHING_WINDOW = 10

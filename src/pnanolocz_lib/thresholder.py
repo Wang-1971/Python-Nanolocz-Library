@@ -337,7 +337,7 @@ def otsu_edges(
 
     edges = process_slice(binary)
 
-    return to_nan_mask(~edges)
+    return to_nan_mask(np.logical_not(edges))
 
 
 @_register("otsu skel")
@@ -382,7 +382,7 @@ def otsu_skel(
 
     skeleton = _process_slice(binary)
 
-    return to_nan_mask(~skeleton)
+    return to_nan_mask(np.logical_not(skeleton))
 
 
 @_register("hist skel")
@@ -432,7 +432,7 @@ def hist_skel(
 
     skeleton = _process_slice(binary)
 
-    return to_nan_mask(~skeleton)
+    return to_nan_mask(np.logical_not(skeleton))
 
 
 @_register("line_step")

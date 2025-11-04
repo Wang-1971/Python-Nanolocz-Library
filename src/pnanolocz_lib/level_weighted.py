@@ -36,11 +36,18 @@ Daniel E. Rollins, University of Leeds (2025)
 from __future__ import annotations
 
 import warnings
-from typing import Any, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 import numpy as np
-from numpy.polynomial.polyutils import RankWarning
 from scipy import ndimage
+
+if TYPE_CHECKING:
+    from numpy import RankWarning
+else:
+    try:
+        from numpy import RankWarning  # type: ignore[attr-defined]
+    except Exception:
+        from numpy.polynomial.polyutils import RankWarning  # type: ignore[attr-defined]
 
 # ---------------------
 # Low-level helpers
@@ -631,7 +638,7 @@ def level_weighted_med_line(
     leveled[has_data, :] = (
         image_float[has_data, :] - weighted_row_background[has_data, None]
     )
-    return leveled
+    return np.asarray(leveled)
 
 
 def level_weighted_med_line_y(
@@ -696,7 +703,7 @@ def level_weighted_med_line_y(
         image_float[:, cols_with_data]
         - weighted_col_background[cols_with_data][None, :]
     )
-    return leveled
+    return np.asarray(leveled)
 
 
 def level_weighted_smed_line(

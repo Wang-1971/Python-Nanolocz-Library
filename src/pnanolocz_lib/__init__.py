@@ -3,7 +3,7 @@
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    from ._version import version as __version__
+    from ._version import version as __version__  # type: ignore[import-not-found]
 except Exception:
     try:
         __version__ = version("pnanolocz_lib")
