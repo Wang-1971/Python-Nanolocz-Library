@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/derollins/Python-Nanolocz-Library/graph/badge.svg?token=W5NkAxjlmX)](https://codecov.io/gh/derollins/Python-Nanolocz-Library)
 
 *A Python library for AFM image flattening, background leveling, and edge detection, based on the MATLAB NanoLocz platform.*
-The orginal Nanolocz-Matlab-Library is availible here: <https://github.com/George-R-Heath/NanoLocz-Matlab-Library>
+Original NanoLocz MATLAB library is available here: <https://github.com/George-R-Heath/NanoLocz-Matlab-Library>
 
 ---
 
@@ -62,7 +62,7 @@ import numpy as np
 from pnanolocz_lib.level import apply_level
 from pnanolocz_lib.level_auto import apply_level_auto
 from pnanolocz_lib.thresholder import thresholder
-from pnanolocz_lib.level_weighted import apply_weighted_leve
+from pnanolocz_lib.level_weighted import apply_weighted_level
 
 # 1) Polynomial plane leveling
 img = np.load("frame.npy")        # (H,W)
@@ -158,7 +158,7 @@ otsu_mask = thresholder(img, method="otsu", limits=None)
 
 ## 🔗 Links
 
-- **Homepage**: <https://github.com/derollins/Python-Nanolocz-Library>
+- **Homepage**: [GitHub Repository](https://github.com/derollins/Python-Nanolocz-Library>)
   Explore the source code, documentation, and examples.
 - **Issue Tracker**: <https://github.com/derollins/Python-Nanolocz-Library/issues>
   Use this to submit bug reports, feature requests, or ask questions.
