@@ -30,22 +30,24 @@ binary equivalence.
 
 Mask conventions
 ----------------
-Unless otherwise stated, functions in this module return boolean masks with
-the following convention:
+All functions in this module return an *exclusion mask*:
 
-    True  → excluded / masked pixels (MATLAB NaN regions)
-    False → valid / included pixels
+    True  → excluded / masked pixel (MATLAB NaN region)
+    False → valid / included pixel
 
 This convention matches the effective behavior of NaN-masked regions in MATLAB and
-and the downstream leveling and weighting logic used in the NanoLocz workflow while
+the downstream leveling and weighting logic used in the NanoLocz workflow while
 remaining compatible with NumPy boolean indexing.
+
+If you need a *validity mask* (True = valid), invert the returned mask with
+`~mask` or `np.logical_not(mask)`.
 
 Available methods
 -----------------
 The following thresholding and edge-detection methods are provided and can be
 accessed either directly or via the `apply_thresholder` dispatcher:
 
-- selection      : Pass-through of a user-supplied mask
+- selection      : Convert a user-supplied mask-like array to an exclusion mask
 - histogram      : Intensity range thresholding
 - otsu           : Single-level Otsu thresholding (NaN-safe)
 - auto edges     : Sobel-based edge detection with morphological cleanup
@@ -53,7 +55,10 @@ accessed either directly or via the `apply_thresholder` dispatcher:
 - otsu edges     : Otsu-gated edge detection
 - otsu skel      : Otsu thresholding followed by skeletonization
 - hist skel      : Histogram thresholding followed by skeletonization
-- line_step      : Line-wise step detection using PELT change-point detection
+- line_step      : Line-wise step detection using change-point detection (experimental).
+                  Note: This method is *not* parameter-equivalent to MATLAB's
+                  `findchangepts(..., 'Statistic','linear','MinThreshold', ...)`
+                  and may diverge on real data.
 - adaptive       : Adaptive edge-based masking mimicking MATLAB behaviour
 
 Dispatcher
@@ -107,75 +112,30 @@ def _register(name: str) -> Callable[[F], F]:
     return decorator
 
 
-def to_bool_mask(mask_like: np.ndarray) -> np.ndarray:
-    """
-    Convert an input mask-like array to a clean boolean mask.
-
-    Any nonzero or True values become True; zeros, False, or NaNs become False.
-    Then flipped so that True indicates excluded regions (masked), False indicates valid regions.
-
-    Parameters
-    ----------
-    mask_like : np.ndarray
-        Input array to be interpreted as a mask.
-
-    Returns
-    -------
-    np.ndarray
-        Boolean mask where True = excluded, False = valid.
-    """
-    arr = np.asarray(mask_like)
-    # True = valid / nonzero & finite, False = invalid / zero or NaN
-    valid = np.asarray(arr, dtype=bool) & np.isfinite(arr)
-    # Flip to convention: True = excluded
-    return ~valid
-
-
-def to_nan_mask(
-    binary_mask: np.ndarray[Any, np.dtype[Any]],
-) -> np.ndarray[Any, np.dtype[Any]]:
-    """
-    Convert a boolean mask to a float mask with NaNs in False positions.
-
-    Kept for compatibility with older code. Prefer bool masks in new code.
-
-    Parameters
-    ----------
-    binary_mask : np.ndarray
-        Boolean array where True indicates valid regions.
-
-    Returns
-    -------
-    mask : np.ndarray
-        Float array where True becomes 1.0 and False becomes NaN.
-    """
-    mask = binary_mask.astype(float)
-    mask[~binary_mask] = np.nan
-    return mask
-
-
 @_register("selection")
 def selection(
     img: np.ndarray[Any, np.dtype[np.float64]],
     limits: tuple[float, float] | list[float] | str | None = None,
 ) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
-    Pass-through a user-provided mask.
+    Convert a user-provided mask-like array to an exclusion mask.
 
-    Interprets the input array as an exclusion mask without modification. This function
-    assumes the input already uses the module's convention:
-    True = excluded, False = valid.
-
-    No inversion or normalization is performed.”
+    Interpret the input as a *mask-like* array and convert to an exclusion mask.
+    - If `img` is boolean: it is assumed to already follow the module convention
+    (True = excluded) and is returned unchanged.
+    - Otherwise: finite, non-zero values are treated as *valid*, and all other
+    values (0, NaN, Inf) are treated as *excluded*.
 
     Mask convention:
+
         True  → excluded / masked pixel (MATLAB NaN region)
         False → valid / included pixel
 
     Parameters
     ----------
     img : np.ndarray
-        Input mask image. Non-zero or True values indicate excluded regions.
+        Input mask-like array. If boolean: True means excluded.
+        If numeric: finite non-zero values are treated as valid; 0/NaN/Inf are excluded.
     limits : None
         Not used for this method (kept for API consistency).
 
@@ -187,11 +147,13 @@ def selection(
     Notes
     -----
     - This function performs no inversion or processing.
-    - Intended for direct use with MATLAB-style masks where True corresponds
-      to NaN (excluded) regions.
+    - Intended to support MATLAB-style NaN-masked images or numeric 'mask images'.
     """
-    mask = img.astype(bool)
-    return mask.astype(bool)
+    arr = np.asarray(img)
+    if arr.dtype == np.bool_:
+        return arr
+    valid = (arr != 0) & np.isfinite(arr)
+    return (~valid).astype(bool)
 
 
 @_register("histogram")
@@ -202,10 +164,12 @@ def histogram(
     """
     Create a mask using histogram-based intensity thresholding.
 
-    Computes a logical gate based on intensity limits. Pixels within the
-    specified range are marked as True and pixels outside the range as False.
+    Computes a logical gate based on intensity limits. Pixels outside the
+    specified range are marked as excluded (True).
+    Pixels inside the range are valid (False).
 
-    Mask convention (pipeline-level interpretation):
+    Mask convention:
+
         True  → excluded / masked pixel
         False → valid / included pixel
 
@@ -228,20 +192,17 @@ def histogram(
 
     Notes
     -----
-    - This function mirrors MATLAB histogram gating logic but does not
-      explicitly invert the result.
-    - Interpretation as an exclusion mask is handled consistently at the
-      pipeline level.
+    - This returns an exclusion mask directly (True = excluded).
     """
-    if limits is None:
-        raise ValueError("limits must be provided for histogram method")
+    if limits is None or not (isinstance(limits, (tuple, list)) and len(limits) == 2):
+        raise ValueError("limits must be a tuple/list of length 2 for histogram")
     if isinstance(limits, (tuple, list)) and len(limits) == 2:
         low, high = limits
     else:
         raise ValueError("limits must be a tuple or list of 2 elements")
 
-    mask = (img >= low) & (img <= high)
-    return mask.astype(bool)
+    valid = (img >= low) & (img <= high)
+    return (~valid).astype(bool)
 
 
 @_register("otsu")
@@ -255,7 +216,8 @@ def otsu(
     This function computes an Otsu threshold using only finite-valued pixels and returns
     a boolean mask based on intensity comparison.
 
-    Mask convention (pipeline-level interpretation):
+    Mask convention:
+
         True  → excluded / masked pixel (MATLAB NaN region)
         False → valid / included pixel
 
@@ -273,21 +235,13 @@ def otsu(
 
     Notes
     -----
-    - Finite pixels below or equal to the threshold are marked as True.
-    - Non-finite pixels (NaN/Inf) are always marked as False.
-    - This aligns algorithmically with MATLAB's `graythresh`, but exact
-      thresholds may differ due to implementation details in scikit-image.
-    - Interpretation as an exclusion mask is handled consistently elsewhere.
+    - Finite pixels **above** the Otsu threshold are marked as excluded (True).
+    - Non-finite pixels (NaN/Inf) are always marked as valid (False).
     """
     arr = np.asarray(img, dtype=np.float64)
 
     # Identify finite-valued pixels (NaN/Inf excluded from threshold computation)
     finite = np.isfinite(arr).astype(bool)  # <-- ensure proper bool type
-
-    # No finite pixels -> no excluded regions
-    if limits is None:
-        # proceed with default behavior
-        limits = ()  # or ignore it completely
 
     # No finite pixels -> no exclusion
     if finite.sum() == 0:
@@ -296,13 +250,14 @@ def otsu(
     # Compute threshold on finite values only (MATLAB graythresh equivalent)
     thresh = threshold_otsu(arr[finite])
 
-    # Logical gate: pixels below or equal to threshold
+    # Logical gate: pixels at/below threshold are "inside" (valid),
+    # then we invert to exclusion.
     inside = arr <= thresh
 
     # Non-finite pixels are always treated as valid (not excluded)
     inside[~finite] = False
 
-    return inside.astype(bool)
+    return (~inside).astype(bool)
 
 
 @_register("auto edges")
@@ -318,7 +273,8 @@ def auto_edges(
     thresholding, and a sequence of morphological operations to identify
     edge-like structures in AFM images.
 
-    Mask convention (pipeline-level interpretation):
+    Mask convention:
+
         True  → excluded / masked pixels (MATLAB NaN regions, edges)
         False → valid / included pixels (interior)
 
@@ -343,7 +299,6 @@ def auto_edges(
       emphasize horizontal features typical of AFM scan artifacts.
     - Morphological operations approximate MATLAB `bwmorph`, `imdilate`,
       and `imclose` calls but are not bitwise identical.
-    - Final inversion ensures True corresponds to excluded (edge) regions.
     """
     # 1. Gaussian smoothing (MATLAB: imgaussfilt)
     img = np.asarray(img, dtype=np.float64)
@@ -362,7 +317,7 @@ def auto_edges(
 
     # 3. Adaptive thresholding
     thresh = grad.min() + (grad.mean() - grad.min()) * 1.5
-    bw = grad > thresh  # bw : binary edge mask (forground)
+    bw = grad > thresh  # bw : binary edge mask (foreground)
 
     # 4. Remove small connected components (MATLAB bwareaopen equivalents)
     bw = remove_small_objects(bw, min_size=100)
@@ -388,7 +343,7 @@ def auto_edges(
         bw = binary_erosion(bw, footprint=fp)
 
     # 7. Return boolean mask where True = excluded
-    return ~bw.astype(bool)
+    return bw.astype(bool)
 
 
 @_register("hist edges")
@@ -408,10 +363,10 @@ def hist_edges(
         (low ≤ I ≤ high) →
         invert →
         bwmorph('remove') →
-        imdilate(strel('disk',3)) →
-        invert
+        imdilate(strel('disk',3))
 
-    Mask convention::
+    Mask convention:
+
         True  → excluded / masked pixels (edges, MATLAB NaN regions)
         False → valid / included pixels (interior)
 
@@ -466,10 +421,8 @@ def hist_edges(
     # 5. Thicken perimeter (MATLAB: imdilate(strel('disk',3)))
     thick_perim = binary_dilation(perimeter, footprint=disk(3))
 
-    # 6. Invert to obtain exclusion mask
-    interior = ~thick_perim
-
-    return interior.astype(bool)
+    # Returns the dilated perimeter as the exclusion mask (True = excluded).
+    return thick_perim.astype(bool)
 
 
 @_register("otsu edges")
@@ -491,10 +444,10 @@ def otsu_edges(
         bwmorph('remove') →
         bwareaopen / hole filling →
         imdilate(strel('disk',2)) →
-        cleanup →
-        invert
+        cleanup
 
     Mask convention:
+
         True  → excluded / masked pixels (edges, MATLAB NaN regions)
         False → valid / included pixels (interior)
 
@@ -517,8 +470,6 @@ def otsu_edges(
 
     Notes
     -----
-    - This function is intentionally 2D-only.
-    - Stack (3D) handling should be performed by the caller or dispatcher.
     - Morphological operations approximate MATLAB behavior but are not
       bitwise identical due to implementation differences.
     """
@@ -556,10 +507,7 @@ def otsu_edges(
     thick_perim = remove_small_objects(thick_perim, min_size=100, connectivity=2)
     thick_perim = remove_small_holes(thick_perim, area_threshold=50, connectivity=2)
 
-    # 8. Invert → exclusion mask
-    interior = ~thick_perim
-
-    return interior.astype(bool)
+    return thick_perim.astype(bool)
 
 
 def prune_skeleton_min_branch_length(
@@ -665,12 +613,10 @@ def otsu_skel(
     Generate a skeleton-based exclusion mask using Otsu thresholding.
 
     This method identifies edge regions using Otsu thresholding, extracts
-    a skeleton representation of those edges, and returns a boolean mask
-    indicating valid interior pixels.
+    a skeleton representation of those edges, and returns a boolean
+    exclusion mask where skeleton/edge pixels are excluded.
 
-    Mask convention:
-        True  → valid / included pixels (interior)
-        False → excluded / masked pixels (edges, MATLAB NaN regions)
+    Edges are marked as True in the boolean mask.
 
     Parameters
     ----------
@@ -702,12 +648,12 @@ def otsu_skel(
     thresh = threshold_otsu(sm)
     binary = ~(sm <= thresh)  # edges foreground
 
-    def _skel_valid_frame(bmask: np.ndarray) -> np.ndarray[np.bool_]:
+    def _skel_excl_frame(bmask: np.ndarray) -> np.ndarray[np.bool_]:
         skeleton = _skeletonize_frame(bmask)  # True on skeleton (edges)
-        return (~skeleton).astype(bool)  # True = valid, False = edges
+        return skeleton.astype(bool)  # True = edges
 
     if img.ndim == 2:
-        return _skel_valid_frame(binary)
+        return _skel_excl_frame(binary)
     else:
         raise ValueError("img must be 2D")
 
@@ -721,12 +667,10 @@ def hist_skel(
     Generate a skeleton-based exclusion mask using histogram gating.
 
     This method identifies edge regions using intensity limits, extracts
-    a skeleton representation of those edges, and returns a boolean mask
-    indicating valid interior pixels.
+    a skeleton representation of those edges, and  returns a boolean
+    exclusion mask where skeleton/edge pixels are excluded.
 
-    Mask convention:
-        True  → valid / included pixels (interior)
-        False → excluded / masked pixels (edges, MATLAB NaN regions)
+    Edges are marked as True in the boolean mask.
 
     Parameters
     ----------
@@ -759,12 +703,12 @@ def hist_skel(
     sm = gaussian_filter(img, sigma=2, mode="nearest")
     binary = ~((sm >= low) & (sm <= high))  # edges foreground
 
-    def _skel_valid_frame(bmask: np.ndarray) -> np.ndarray[np.bool_]:
+    def _skel_excl_frame(bmask: np.ndarray) -> np.ndarray[np.bool_]:
         skeleton = _skeletonize_frame(bmask)
-        return (~skeleton).astype(bool)
+        return skeleton.astype(bool)
 
     if img.ndim == 2:
-        return _skel_valid_frame(binary)
+        return _skel_excl_frame(binary)
     else:
         raise ValueError("img must be 2D")
 
@@ -775,7 +719,7 @@ def line_step(
     limits: tuple[float, float] | list[float] | str | None = None,
 ) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
-    Detect row-wise step changes and construct a validity mask using PELT.
+    Detect row-wise step changes and construct an exclusion mask using PELT.
 
     This function detects step changes (change points) using the PELT algorithm on an
     L2 cost model, and classifies contiguous row segments as valid or excluded
@@ -814,11 +758,16 @@ def line_step(
     - Neighborhood size is fixed to **3 pixels** on each side of a change point.
     - Change points closer than **4 pixels** to the row boundaries are ignored
       to avoid degenerate neighborhoods.
-    - This routine returns a validity mask (`True` = valid) to be used directly
-      by downstream levelling functions that accept boolean masks.
+    - This routine returns an **exclusion mask** (True = excluded), consistent with
+      the module-wide convention.
     - The `limits` shape is retained for consistency with other mask builders
       where `(low, high)` are used; here only `limits[1]` (the second element)
       is meaningful as a numerical penalty.
+    - The MATLAB implementation uses `findchangepts` with a 'linear' statistic and a
+      `MinThreshold`. The Python implementation uses `ruptures` (PELT) with a penalty.
+      These parameters are not directly interchangeable, so `line_step` is provided
+      as a best-effort approximation and is not expected to match MATLAB bitwise or
+      even structurally on all images.
 
     See Also
     --------
@@ -827,64 +776,66 @@ def line_step(
     try:
         if not (isinstance(limits, (tuple, list)) and len(limits) >= 2):
             raise ValueError("limits must be a tuple or list with at least 2 elements")
-
+        img = np.asarray(img, dtype=float)
         rows, cols = img.shape
         penalty = float(limits[1])
-        mask = np.zeros((rows, cols), dtype=bool)  # False = valid
+
+        mask = np.zeros((rows, cols), dtype=bool)  # False = valid, True = excluded
 
         for j in range(rows):
             x = np.asarray(img[j, :], dtype=float)
 
-            # Detect change points; cps : change points
             try:
                 cps = rpt.Pelt(model="l2").fit(x).predict(pen=penalty)
             except Exception:
                 cps = []
 
-            # Filter CPs: at least 4 from edges
-            cps = [int(cp) for cp in cps if 4 <= cp <= cols - 4]
+            # ruptures often includes the endpoint (cols); MATLAB doesn't have that as a CP
+            cps = [int(cp) for cp in cps if 0 < cp < cols]
+
+            # MATLAB: cps(cps<4)=[]; cps(cps>cols-4)=[]
+            cps = [cp for cp in cps if 4 <= cp <= cols - 4]
             cps = sorted(set(cps))
 
-            if cps:
-                for i in range(len(cps) + 1):
-                    if i == 0:
-                        # First segment: [0 : cps[0])
-                        cp = cps[0]
-                        L = x[max(cp - 3, 0) : cp]
-                        R = x[cp : min(cp + 3, cols)]
-                        rising = L.size > 0 and R.size > 0 and np.mean(L) < np.mean(R)
-                        mask[j, 0:cp] = not rising
+            if not cps:
+                continue  # whole row valid
 
-                    elif i == len(cps):
-                        # Last segment: [cps[-1] : end)
-                        cp = cps[-1]
-                        L = x[max(cp - 3, 0) : cp]
-                        R = x[cp : min(cp + 3, cols)]
-                        falling_valid = (
-                            L.size > 0 and R.size > 0 and np.mean(L) > np.mean(R)
-                        )
-                        mask[j, cp:cols] = not falling_valid
+            for i in range(len(cps) + 1):
+                if i == 0:
+                    cp = cps[0]
 
-                    else:
-                        # Middle segment: [cps[i-1] : cps[i])
-                        cp_prev = cps[i - 1]
-                        cp_curr = cps[i]
-                        if cp_prev < cp_curr:  # avoid empty slice
-                            L = x[max(cp_curr - 3, cp_prev) : cp_curr]
-                            R = x[cp_curr : min(cp_curr + 3, cols)]
-                            rising = (
-                                L.size > 0 and R.size > 0 and np.mean(L) < np.mean(R)
-                            )
-                            mask[j, cp_prev:cp_curr] = not rising
-            else:
-                mask[j, :] = False  # whole row valid
+                    L = x[max(cp - 3, 0) : min(cp + 1, cols)]
+                    R = x[max(cp, 0) : min(cp + 4, cols)]
+                    rising = (L.size > 0) and (R.size > 0) and (np.mean(L) < np.mean(R))
 
-        return ~mask
+                    mask[j, 0 : cp + 1] = not rising  # excluded if not rising
+
+                elif i == len(cps):
+                    cp = cps[-1]
+
+                    L = x[max(cp - 3, 0) : min(cp + 1, cols)]
+                    R = x[max(cp, 0) : min(cp + 4, cols)]
+                    falling_valid = (
+                        (L.size > 0) and (R.size > 0) and (np.mean(L) > np.mean(R))
+                    )
+
+                    mask[j, cp:cols] = not falling_valid
+
+                else:
+                    cp_prev = cps[i - 1]
+                    cp_curr = cps[i]
+
+                    L = x[max(cp_curr - 3, 0) : min(cp_curr + 1, cols)]
+                    R = x[max(cp_curr, 0) : min(cp_curr + 4, cols)]
+                    rising = (L.size > 0) and (R.size > 0) and (np.mean(L) < np.mean(R))
+
+                    mask[j, cp_prev : cp_curr + 1] = not rising
+
+        return mask  # True=excluded
 
     except Exception as e:
         print(f"line_step failed: {e}")
-        # Fallback: return all valid (False) as a boolean mask
-        return np.zeros_like(img, dtype=bool)
+        return np.zeros_like(img, dtype=bool)  # no excluded regions
 
 
 @_register("adaptive")
@@ -893,7 +844,7 @@ def adaptive(
     limits: tuple[float, float] | list[float] | None = None,
 ) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
-    Build a exclusion mask using an adaptive, edge-based pipeline (Sobel + morphology).
+    Build an exclusion mask using an adaptive, edge-based pipeline (Sobel+morphology).
 
     This method detects edges with Sobel filtering, consolidates edge regions using
     morphological closing/dilation, fills interior holes, erodes to refine edge
@@ -907,7 +858,8 @@ def adaptive(
     Processing pipeline (MATLAB equivalent)
     ---------------------------------------
     1) Gaussian smoothing (`imgaussfilt`)
-    2) Edge detection (`edge('sobel')`) → Otsu threshold → binary edge map
+    2) Edge detection (Python: Sobel magnitude + Otsu on magnitude;
+       MATLAB: `edge(...,'sobel')`)
     3) Morphological closing (`imclose(strel('disk',10))`)
     4) Remove small objects (`bwareaopen`, min_size=10)
     5) Dilate with line SEs: `imdilate(line,10,90)` then `imdilate(line,10,0)`
@@ -1003,10 +955,11 @@ def adaptive(
 
     # 10) MATLAB intensity gating:
     #     imgt = (Dfin==0) .* (img>=low) .* (img<=high)
-    interior = (~Dfin) & (img >= low) & (img <= high)
+    finite = np.isfinite(img)
+    interior = (~Dfin) & finite & (img >= low) & (img <= high)
 
     # 11) Output exclusion mask
-    return (interior).astype(bool)
+    return ~interior
 
 
 def apply_thresholder(
@@ -1014,9 +967,9 @@ def apply_thresholder(
     method: str,
     limits: tuple[float, float] | list[float] | str | None = None,
     invert: bool = False,
-) -> np.ndarray[Any, np.dtype[np.float64]]:
+) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
-    Apply a thresholding or edge detecti
+    Apply a thresholding or edge detection method to build a boolean mask.
 
     This is the unified front-end for all registered `thresholder` methods. It validates
     the requested `method`, prepares per-method `limits`, applies the method to a 2D
@@ -1055,6 +1008,7 @@ def apply_thresholder(
     - Methods define their own internal operations (e.g., Sobel, Otsu, morphology)
       and may treat `limits` differently. This function only prepares and routes
       arguments consistently.
+    - If `invert=True`, the returned mask becomes a validity mask (True = valid).
 
     Examples
     --------
@@ -1083,7 +1037,7 @@ def apply_thresholder(
     else:
         limits_safe = limits  # fallback
 
-    result: np.ndarray[Any, np.dtype[np.float64]]
+    result: np.ndarray[Any, np.dtype[np.bool_]]
 
     # Compute mask:
     # - 3D stacks are processed frame-by-frame and concatenated.
