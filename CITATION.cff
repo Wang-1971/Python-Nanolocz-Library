@@ -20,7 +20,7 @@ authors:
 repository-code: 'https://github.com/derollins/Python-Nanolocz-Library'
 abstract: >-
   A Python implementation of the NanoLocz library
-  (https://github.com/George-R-Heath/NanoLocz-Matlab-Library). 
+  (https://github.com/George-R-Heath/NanoLocz-Matlab-Library).
 keywords:
   - AFM
   - Atomic Force MIcroscopy
