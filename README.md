@@ -39,7 +39,7 @@ pip install .
 
 ### Requirements
 
-This library requires **Python 3.10 or newer** and uses modern scientific Python packages to replace MATLAB functionality
+This library requires **Python 3.11 or newer** and uses modern scientific Python packages to replace MATLAB functionality
 from the original NanoLocz platform:
 
 - **NumPy** – Core numerical operations and array handling (replaces MATLAB’s matrix operations).
