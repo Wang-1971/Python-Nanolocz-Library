@@ -79,11 +79,11 @@ from scipy import ndimage
 
 
 def _validity_mask(
-    arr: np.ndarray,
-    mask_excl: Optional[np.ndarray],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
+    mask_excl: np.ndarray[Any, np.dtype[np.bool_]] | None,
     *,
     name: str = "mask",
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
     Convert an exclusion mask into a finite-aware validity mask.
 
@@ -114,25 +114,29 @@ def _validity_mask(
     finite = np.isfinite(arr)
 
     if mask_excl is None:
-        return finite
+        return np.asarray(finite, dtype=np.bool_)
 
-    m_excl = np.asarray(mask_excl, dtype=bool)
+    m_excl = np.asarray(mask_excl, dtype=np.bool_)
     if m_excl.shape != arr.shape:
         raise ValueError(
             f"{name} shape {m_excl.shape} must match img shape {arr.shape}"
         )
 
-    return (~m_excl) & finite
+    return np.asarray((~m_excl) & finite, dtype=np.bool_)
 
 
 def _polyfit_centered(
-    x: np.ndarray, y: np.ndarray, order: int
-) -> tuple[np.ndarray, tuple[float, float]]:
+    x: np.ndarray[Any, np.dtype[np.float64]],
+    y: np.ndarray[Any, np.dtype[np.float64]],
+    order: int,
+) -> tuple[np.ndarray[Any, np.dtype[np.float64]], tuple[float, float]]:
     """
     Fit polynomial to y vs x after centering and scaling x.
 
     Equivalent to MATLAB polyfit with mu output.
-    Returns:
+
+    Returns
+    -------
       coeffs: polynomial coefficients (highest power first)
       (centroid, scale): centering and scaling applied to x
     """
@@ -149,7 +153,8 @@ def _polyfit_centered(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RankWarning)
         coeffs = np.polyfit(std_x, y, order)
-    return coeffs, (centroid, scale)
+
+    return np.asarray(coeffs, dtype=np.float64), (centroid, scale)
 
 
 def _polyval_centered(
@@ -175,7 +180,7 @@ def _polyval_centered(
     if scale == 0:
         scale = 1.0
     std_points = (points - centroid) / scale
-    return np.polyval(coeffs, std_points)
+    return np.asarray(np.polyval(coeffs, std_points), dtype=np.float64)
 
 
 def _find_regions(
@@ -200,7 +205,6 @@ def _find_regions(
         elsewhere in the python port (so `region_masked.flat[flat_idx] = ...`
         behaves correctly).
     """
-
     # 8-connectivity structure (exactly like MATLAB bwconncomp(mask,8))
     structure = np.ones((3, 3), dtype=int)
     labeled, num_features = ndimage.label(mask, structure=structure)
@@ -219,11 +223,13 @@ def _find_regions(
 
     # keep labels that satisfy MATLAB's >= min_area
     keep_labels = [
-        lab for lab, area in zip(range(1, num_features + 1), areas) if area >= min_area
+        lab
+        for lab, area in zip(range(1, num_features + 1), areas, strict=False)
+        if area >= min_area
     ]
 
     # produce flat indices for each kept label (row-major to match numpy.flat)
-    regions: List[np.ndarray] = []
+    regions: List[np.ndarray[Any, np.dtype[np.int64]]] = []
     for lab in keep_labels:
         rows_idx, cols_idx = np.where(labeled == lab)
         # build flat indices in numpy order (row-major)
@@ -389,7 +395,50 @@ def level_weighted_plane(
     return img_f - background_plane
 
 
-def level_weighted_line(img, regions, polyx, polyy):
+def level_weighted_line(
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    regions: List[np.ndarray[Any, np.dtype[np.int64]]],
+    polyx: int,
+    polyy: int,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
+    """
+    Subtract a region-weighted polynomial line background along rows and columns.
+
+    This method reproduces the NanoLocz MATLAB ``level_weighted(...,'line')``
+    behavior by fitting polynomials within each region separately for each row
+    (X-direction) and/or each column (Y-direction), then combining per-region
+    fits using per-row (or per-column) weights proportional to the number of
+    region pixels present in that row/column. Regions contributing less than
+    2% of the row/column support are excluded from the weighted sum.
+
+    Parameters
+    ----------
+    img : ndarray
+        2D AFM image with shape ``(H, W)``.
+    regions : list of ndarray
+        Foreground regions as flat indices (NumPy row-major / ``order='C'``).
+    polyx : int
+        Polynomial order for row-wise fits (X-direction). If ``polyx <= 0``,
+        no row-wise correction is applied.
+    polyy : int
+        Polynomial order for column-wise fits (Y-direction). If ``polyy <= 0``,
+        no column-wise correction is applied.
+
+    Returns
+    -------
+    leveled : ndarray
+        Leveled image with the same shape as ``img`` and dtype ``float64``.
+
+    Notes
+    -----
+    - Fitting uses 1-based coordinates for evaluation grids (``1..W`` and
+      ``1..H``) to match MATLAB indexing conventions used in the reference
+      implementation.
+    - After computing weighted coefficients per row/column, the constant term
+      is set to zero (MATLAB behavior: ``px_w(:,end)=0`` / ``py_w(:,end)=0``).
+    - Rows/columns whose synthesized background contains NaNs are set to 0
+      before subtraction (MATLAB update noted: "set line fit NaNs = 0").
+    """
     img_f = np.asarray(img, dtype=float)
     rows, cols = img_f.shape
     n_regions = len(regions)
@@ -632,7 +681,10 @@ def level_weighted_med_line_y(
 
 
 # --- helper: MATLAB-like movmedian (include NaNs), centered, even window ---
-def _movmedian_centered_includenan(x: np.ndarray, w: int) -> np.ndarray:
+def _movmedian_centered_includenan(
+    x: np.ndarray[Any, np.dtype[np.float64]],
+    w: int,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Compute a centered moving median with NaN inclusion and symmetric edge shrinking.
 
@@ -640,7 +692,7 @@ def _movmedian_centered_includenan(x: np.ndarray, w: int) -> np.ndarray:
     previous (left=w//2, right=w-w//2). Shrink symmetrically at edges.
     """
     n = x.size
-    out = np.empty(n, dtype=float)
+    out = np.empty(n, dtype=np.float64)
     left = w // 2
     right = w - left
     for i in range(n):
@@ -649,7 +701,7 @@ def _movmedian_centered_includenan(x: np.ndarray, w: int) -> np.ndarray:
         win = x[start:end]
         # include NaNs => if any NaN in window, median becomes NaN (like MATLAB default)
         out[i] = np.median(win)
-    return out
+    return np.asarray(out, dtype=np.float64)
 
 
 def level_weighted_smed_line(
@@ -797,7 +849,6 @@ def apply_level_weighted(
     - A MATLAB-style minimum region area is enforced via:
       ``min_area = max(1, floor(0.01 * H * W))``.
     """
-
     arr = np.asarray(img, dtype=np.float64)
     is_stack = arr.ndim == 3
     frames = arr if is_stack else arr[np.newaxis, ...]

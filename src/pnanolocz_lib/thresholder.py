@@ -83,20 +83,20 @@ from typing import Any, Callable, TypeVar
 import numpy as np
 import ruptures as rpt
 import sknw
-from scipy.ndimage import gaussian_filter, sobel, binary_fill_holes
+from scipy.ndimage import binary_fill_holes, gaussian_filter, sobel
 from skimage.filters import threshold_otsu
 from skimage.morphology import (
     binary_closing,
     binary_dilation,
     binary_erosion,
-    disk,
-    remove_small_objects,
-    skeletonize,
-    thin,
     diamond,
+    disk,
     erosion,
     footprint_rectangle,
     remove_small_holes,
+    remove_small_objects,
+    skeletonize,
+    thin,
 )
 
 # Map method names to handler functions
@@ -117,7 +117,7 @@ def _register(name: str) -> Callable[[F], F]:
 
 @_register("selection")
 def selection(
-    img: np.ndarray[Any, np.dtype[np.float64]],
+    img: np.ndarray[Any, np.dtype[Any]],
     limits: tuple[float, float] | list[float] | str | None = None,
 ) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
@@ -153,10 +153,13 @@ def selection(
     - Intended to support MATLAB-style NaN-masked images or numeric 'mask images'.
     """
     arr = np.asarray(img)
+
     if arr.dtype == np.bool_:
-        return arr
+        # Force dtype for mypy and to guarantee a bool mask.
+        return np.asarray(arr, dtype=np.bool_)
+
     valid = (arr != 0) & np.isfinite(arr)
-    return (~valid).astype(bool)
+    return np.asarray(~valid, dtype=np.bool_)
 
 
 @_register("histogram")
@@ -205,7 +208,7 @@ def histogram(
         raise ValueError("limits must be a tuple or list of 2 elements")
 
     valid = (img >= low) & (img <= high)
-    return (~valid).astype(bool)
+    return np.asarray(~valid, dtype=np.bool_)
 
 
 @_register("otsu")
@@ -248,7 +251,7 @@ def otsu(
 
     # No finite pixels -> no exclusion
     if finite.sum() == 0:
-        return np.zeros_like(arr, dtype=bool)
+        return np.zeros_like(arr, dtype=np.bool_)
 
     # Compute threshold on finite values only (MATLAB graythresh equivalent)
     thresh = threshold_otsu(arr[finite])
@@ -260,7 +263,7 @@ def otsu(
     # Non-finite pixels are always treated as valid (not excluded)
     inside[~finite] = False
 
-    return (~inside).astype(bool)
+    return np.asarray(~inside, dtype=np.bool_)
 
 
 @_register("auto edges")
@@ -346,7 +349,7 @@ def auto_edges(
         bw = binary_erosion(bw, footprint=fp)
 
     # 7. Return boolean mask where True = excluded
-    return bw.astype(bool)
+    return np.asarray(bw, dtype=np.bool_)
 
 
 @_register("hist edges")
@@ -396,7 +399,6 @@ def hist_edges(
     - Morphological operations approximate MATLAB behavior but are not
       bitwise identical due to implementation differences.
     """
-
     # 1. Validate inputs
     if img.ndim != 2:
         raise ValueError("hist_edges expects a 2D image")
@@ -425,7 +427,7 @@ def hist_edges(
     thick_perim = binary_dilation(perimeter, footprint=disk(3))
 
     # Returns the dilated perimeter as the exclusion mask (True = excluded).
-    return thick_perim.astype(bool)
+    return np.asarray(thick_perim, dtype=np.bool_)
 
 
 @_register("otsu edges")
@@ -476,7 +478,6 @@ def otsu_edges(
     - Morphological operations approximate MATLAB behavior but are not
       bitwise identical due to implementation differences.
     """
-
     # 1. Validate input
     img = np.asarray(img, dtype=np.float64)
     if img.ndim != 2:
@@ -510,12 +511,12 @@ def otsu_edges(
     thick_perim = remove_small_objects(thick_perim, min_size=100, connectivity=2)
     thick_perim = remove_small_holes(thick_perim, area_threshold=50, connectivity=2)
 
-    return thick_perim.astype(bool)
+    return np.asarray(thick_perim, dtype=np.bool_)
 
 
 def prune_skeleton_min_branch_length(
-    skel: np.ndarray, min_branch_length: int = 10
-) -> np.ndarray:
+    skel: np.ndarray[Any, np.dtype[np.bool_]], min_branch_length: int = 10
+) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
     Prune short branches from a skeletonized binary image.
 
@@ -556,17 +557,17 @@ def prune_skeleton_min_branch_length(
     isolated_nodes = [n for n, d in dict(graph.degree()).items() if d == 0]
     graph.remove_nodes_from(isolated_nodes)
     # Reconstruct a boolean skeleton image from remaining graph edges
-    pruned = np.zeros_like(skel, dtype=bool)
+    pruned = np.zeros_like(skel, dtype=np.bool_)
     for _, _, _, data in graph.edges(keys=True, data=True):
         pts = data["pts"]
         pruned[pts[:, 0], pts[:, 1]] = True
 
-    return pruned
+    return np.asarray(pruned, dtype=np.bool_)
 
 
 def _skeletonize_frame(
-    binary_mask: np.ndarray, min_branch_length: int = 10
-) -> np.ndarray:
+    binary_mask: np.ndarray[Any, np.dtype[np.bool_]], min_branch_length: int = 10
+) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
     Skeletonize and clean a binary edge mask for a single image frame.
 
@@ -604,7 +605,7 @@ def _skeletonize_frame(
     # Cleanup similar to MATLAB spur/clean
     cleaned = binary_dilation(pruned)
 
-    return cleaned
+    return np.asarray(cleaned, dtype=np.bool_)
 
 
 @_register("otsu skel")
@@ -635,7 +636,6 @@ def otsu_skel(
 
     Raises
     ------
-
     ValueError
         If `img` is not 2D.
 
@@ -651,9 +651,13 @@ def otsu_skel(
     thresh = threshold_otsu(sm)
     binary = ~(sm <= thresh)  # edges foreground
 
-    def _skel_excl_frame(bmask: np.ndarray) -> np.ndarray[np.bool_]:
-        skeleton = _skeletonize_frame(bmask)  # True on skeleton (edges)
-        return skeleton.astype(bool)  # True = edges
+    def _skel_excl_frame(
+        bmask: np.ndarray[Any, np.dtype[np.bool_]],
+    ) -> np.ndarray[Any, np.dtype[np.bool_]]:
+        skeleton = _skeletonize_frame(
+            np.asarray(bmask, dtype=np.bool_)
+        )  # True on skeleton (edges)
+        return np.asarray(skeleton, dtype=np.bool_)  # True = edges
 
     if img.ndim == 2:
         return _skel_excl_frame(binary)
@@ -706,9 +710,11 @@ def hist_skel(
     sm = gaussian_filter(img, sigma=2, mode="nearest")
     binary = ~((sm >= low) & (sm <= high))  # edges foreground
 
-    def _skel_excl_frame(bmask: np.ndarray) -> np.ndarray[np.bool_]:
-        skeleton = _skeletonize_frame(bmask)
-        return skeleton.astype(bool)
+    def _skel_excl_frame(
+        bmask: np.ndarray[Any, np.dtype[np.bool_]],
+    ) -> np.ndarray[Any, np.dtype[np.bool_]]:
+        skeleton = _skeletonize_frame(np.asarray(bmask, dtype=np.bool_))
+        return np.asarray(skeleton, dtype=np.bool_)
 
     if img.ndim == 2:
         return _skel_excl_frame(binary)
@@ -793,7 +799,8 @@ def line_step(
             except Exception:
                 cps = []
 
-            # ruptures often includes the endpoint (cols); MATLAB doesn't have that as a CP
+            # ruptures often includes the endpoint (cols);
+            # MATLAB doesn't have that as a CP
             cps = [int(cp) for cp in cps if 0 < cp < cols]
 
             # MATLAB: cps(cps<4)=[]; cps(cps>cols-4)=[]
@@ -834,7 +841,7 @@ def line_step(
 
                     mask[j, cp_prev : cp_curr + 1] = not rising
 
-        return mask  # True=excluded
+        return np.asarray(mask, dtype=np.bool_)  # True=excluded
 
     except Exception as e:
         print(f"line_step failed: {e}")
@@ -962,7 +969,7 @@ def adaptive(
     interior = (~Dfin) & finite & (img >= low) & (img <= high)
 
     # 11) Output exclusion mask
-    return ~interior
+    return np.asarray(~interior, dtype=np.bool_)
 
 
 def apply_thresholder(
@@ -1001,7 +1008,8 @@ def apply_thresholder(
     Raises
     ------
     ValueError
-        If `method` is unknown, or if `limits` are missing/invalid for the chosen method.
+        If `method` is unknown, or if `limits` are missing/invalid for the chosen
+        method.
 
     Notes
     -----
@@ -1031,12 +1039,15 @@ def apply_thresholder(
     # - Some methods ignore limits entirely.
     # - Some methods require (low, high).
     # - Otherwise, pass through whatever was provided (tuple/list/str/None).
+    limits_safe: tuple[float, float] | list[float] | str | None
     if method in ["otsu", "auto edges", "selection"]:
         limits_safe = None
-    elif method in ["histogram", "hist edges"]:
-        if limits is None:
-            raise ValueError(f"Method '{method}' requires limits (tuple/list)")
-        limits_safe = tuple(limits)  # ensure Python tuple
+
+    elif method in {"histogram", "hist edges", "adaptive"}:
+        if not (isinstance(limits, (tuple, list)) and len(limits) == 2):
+            raise ValueError(f"Method '{method}' requires (low, high) limits")
+        low, high = float(limits[0]), float(limits[1])
+        limits_safe = (low, high)
     else:
         limits_safe = limits  # fallback
 

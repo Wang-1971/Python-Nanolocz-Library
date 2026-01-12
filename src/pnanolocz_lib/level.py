@@ -1,6 +1,5 @@
 """
-Level and flatten AFM images and image stacks using MATLAB-aligned background
-correction methods.
+Level AFM images and image stacks using MATLAB-aligned background correction methods.
 
 This module provides background leveling and flattening routines for Atomic
 Force Microscopy (AFM) images and image stacks. The implemented methods correct
@@ -28,8 +27,8 @@ NanoLocz outputs (e.g., stage gating or fallback behaviour).
 
 Available leveling methods
 --------------------------
-There methods can be used directly and applied to 2D arrays or are selected via the ``method``
-argument in :func:`apply_level`:
+There methods can be used directly and applied to 2D arrays or are selected via
+the ``method`` argument in :func:`apply_level`:
 
 - ``plane``       : Subtract a polynomial plane via masked column/row means.
 - ``line``        : Subtract row-wise polynomial trends and optionally subtract
@@ -92,11 +91,11 @@ LOG_FIT_BOUNDS = ([0.1, 0.01, 0.1], [1000, 20, 100])
 
 
 def _validity_mask(
-    arr: np.ndarray,
-    mask_excl: Optional[np.ndarray],
+    arr: np.ndarray[Any, np.dtype[np.float64]],
+    mask_excl: np.ndarray[Any, np.dtype[np.bool_]] | None,
     *,
     name: str = "mask",
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.bool_]]:
     """
     Convert an exclusion mask into a finite-aware validity mask.
 
@@ -127,15 +126,15 @@ def _validity_mask(
     finite = np.isfinite(arr)
 
     if mask_excl is None:
-        return finite
+        return np.asarray(finite, dtype=np.float64)
 
-    m_excl = np.asarray(mask_excl, dtype=bool)
+    m_excl = np.asarray(mask_excl, dtype=np.bool_)
     if m_excl.shape != arr.shape:
         raise ValueError(
             f"{name} shape {m_excl.shape} must match img shape {arr.shape}"
         )
 
-    return (~m_excl) & finite
+    return np.asarray((~m_excl) & finite, dtype=np.bool_)
 
 
 def level_plane(
@@ -585,15 +584,18 @@ def level_smed_line(
             y1[i] = bg
 
     # movmedian over rows (centered, shrink at edges)
-    def _movmedian(x: np.ndarray, w: int) -> np.ndarray:
+    def _movmedian(
+        x: np.ndarray[Any, np.dtype[np.float64]],
+        w: int,
+    ) -> np.ndarray[Any, np.dtype[np.float64]]:
         n = x.size
-        out = np.empty_like(x)
+        out = np.empty(n, dtype=np.float64)
         half = w // 2
         for i in range(n):
             start = max(0, i - half)
             end = min(n, start + w)
             out[i] = np.median(x[start:end])
-        return out
+        return np.asarray(out, dtype=np.float64)
 
     bg2 = _movmedian(y1, SMOOTHING_WINDOW)
 
@@ -603,11 +605,11 @@ def level_smed_line(
 
 
 def level_mean_plane(
-    img: np.ndarray,
-    mask: Optional[np.ndarray],
+    img: np.ndarray[Any, np.dtype[np.float64]],
+    mask: np.ndarray[Any, np.dtype[np.bool_]] | None,
     polyx: int,  # unused
     polyy: int,  # unused
-) -> np.ndarray:
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Subtract the masked mean value from an image.
 
@@ -654,12 +656,12 @@ def level_mean_plane(
         m_valid = (~mask_excl) & finite
 
     if not np.any(m_valid):
-        return arr.copy()
+        return np.asarray(arr.copy(), dtype=np.float64)
 
     masked = np.where(m_valid, arr, np.nan)
     mean_val = np.nanmean(masked)
 
-    return np.asarray(arr - mean_val)
+    return np.asarray(arr - mean_val, dtype=np.float64)
 
 
 def level_log_y(
@@ -729,8 +731,9 @@ def level_log_y(
 
 
 def _log_y_correction(
-    y: np.ndarray[Any, np.dtype[Any]], scale: float
-) -> np.ndarray[Any, np.dtype[Any]]:
+    y: np.ndarray[Any, np.dtype[np.float64]],
+    scale: float,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Fit a logarithmic correction curve to a 1D row-mean profile.
 

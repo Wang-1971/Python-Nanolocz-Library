@@ -55,8 +55,9 @@ Each step is one of the following:
 
 - A leveling step via :func:`pnanolocz_lib.level.apply_level`
   (e.g., ``plane``, ``line``, ``med_line``, ``mean_plane``).
-- A region-weighted leveling step via :func:`pnanolocz_lib.level_weighted.apply_level_weighted`
-  (e.g., weighted ``plane`` or weighted ``med_line``).
+- A region-weighted leveling step via
+  :func:`pnanolocz_lib.level_weighted.apply_level_weighted` (e.g., weighted
+  ``plane`` or weighted ``med_line``).
 - A masking step via :func:`pnanolocz_lib.thresholder.apply_thresholder`
   which updates the current exclusion mask carried forward to subsequent steps.
 
@@ -94,14 +95,19 @@ Daniel E. Rollins, University of Leeds (2025)
 This module is part of the ``pNanoLocz-Lib`` Python library for AFM analysis.
 """
 
-from typing import Any, Dict, Sequence, Tuple
+from collections.abc import Callable, Mapping
+from typing import Any, Dict, Sequence
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy.optimize import curve_fit
 
 from pnanolocz_lib.level import apply_level
 from pnanolocz_lib.level_weighted import apply_level_weighted
 from pnanolocz_lib.thresholder import apply_thresholder
+
+FloatArray = NDArray[np.float64]
+BoolArray = NDArray[np.bool_]
 
 # Data‑driven routine definitions
 ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
@@ -557,7 +563,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
 # Trigger schema (current use-case):
 #   'after_step': {'func': 'apply_level', 'method': 'plane', 'polyx': 1, 'polyy': 1}
 #
-PRECOND_POLICIES: dict[str, dict] = {
+PRECOND_POLICIES: dict[str, dict[str, Any]] = {
     "multi-plane-edges": {
         "trigger": {
             "after_step": {
@@ -636,7 +642,11 @@ PRECOND_POLICIES: dict[str, dict] = {
 }
 
 
-def _matches_trigger(func_obj, params: dict, trigger_spec: dict) -> bool:
+def _matches_trigger(
+    func_obj: Callable[..., Any],
+    params: Mapping[str, Any],
+    trigger_spec: Mapping[str, Any],
+) -> bool:
     """
     Match a just-executed step against a preconditioning trigger specification.
 
@@ -681,7 +691,7 @@ def _matches_trigger(func_obj, params: dict, trigger_spec: dict) -> bool:
     return True
 
 
-def _compute_anisotropy_ratio(img: np.ndarray) -> Tuple[float, float, float]:
+def _compute_anisotropy_ratio(img: FloatArray) -> tuple[float, float, float]:
     """
     Compute an anisotropy ratio from the standard deviation of row/column means.
 
@@ -723,15 +733,15 @@ def _compute_anisotropy_ratio(img: np.ndarray) -> Tuple[float, float, float]:
 
 
 def _maybe_inject_precond(
-    img: np.ndarray,
+    img: FloatArray,
     routine: str,
-    func_obj: Any,
-    params: dict,
+    func_obj: Callable[..., Any],
+    params: Mapping[str, Any],
     injected: bool,
     *,
-    apply_level_fn=None,
+    apply_level_fn: Callable[..., FloatArray] | None = None,
     debug: bool = False,
-) -> Tuple[np.ndarray, bool]:
+) -> tuple[FloatArray, bool]:
     """
     Inject a preconditioning leveling step when a routine-specific gate fires.
 
@@ -772,7 +782,7 @@ def _maybe_inject_precond(
       behavior (preconditioning is based on global structure, not masking).
     """
     if injected:
-        return img, True
+        return np.asarray(img, dtype=np.float64), True
 
     policy = PRECOND_POLICIES.get(routine)
     if policy is None:
@@ -785,7 +795,7 @@ def _maybe_inject_precond(
     std_x, std_y, ratio = _compute_anisotropy_ratio(img)
     if debug:
         print(
-            f"[auto] routine={routine} post-plane(1,1) ratio={ratio:.3f} (std_y={std_y:.3g}, std_x={std_x:.3g})"
+            f"[auto] routine={routine} post-plane(1,1) ratio={ratio:.3f} (std_y={std_y:.3g}, std_x={std_x:.3g})"  # noqa
         )
 
     gates = policy.get("gates", [])
@@ -793,26 +803,34 @@ def _maybe_inject_precond(
     # iterate gates in order; first winner applies
     for factor, polyx_value in gates:
         if ratio > factor:
+            fn: Callable[..., FloatArray]
             if apply_level_fn is None:
-                from pnanolocz_lib.level import (
-                    apply_level as apply_level_fn,
-                )  # lazy import
-            img = apply_level_fn(
-                img, polyx=polyx_value, polyy=0, method=method, mask=None
-            )
-            if debug:
-                print(
-                    f"[auto]  precond applied: {method}(polyx={polyx_value}) for ratio>{factor}"
-                )
+                from pnanolocz_lib.level import apply_level as _apply_level
 
-            return img, True
+                fn = _apply_level
+            else:
+                fn = apply_level_fn
+
+            img = fn(img, polyx=polyx_value, polyy=0, method=method, mask=None)
+
+        if debug:
+            print(
+                f"[auto]  precond applied: {method}(polyx={polyx_value}) for ratio>{factor}"  # noqa
+            )
+
+        return img, True
 
     if debug:
         print("[auto]  precond not applied (no gate passed)")
-    return img, False
+    return np.asarray(img, dtype=np.float64), False
 
 
-def _gauss1_model(x, a1, b1, c1):
+def _gauss1_model(
+    x: FloatArray,
+    a1: float,
+    b1: float,
+    c1: float,
+) -> FloatArray:
     """
     Evaluate a MATLAB-style single-Gaussian model used for histogram fitting.
 
@@ -829,7 +847,7 @@ def _gauss1_model(x, a1, b1, c1):
         Model values at ``x``.
     """
     # MATLAB gauss1: a1 * exp(-((x - b1)^2) / c1^2)
-    return a1 * np.exp(-((x - b1) ** 2) / (c1**2))
+    return np.asarray(a1 * np.exp(-((x - b1) ** 2) / (c1**2)), dtype=np.float64)
 
 
 def _compute_gauss_limits(
@@ -978,7 +996,7 @@ def apply_level_auto(
         mask = None
         injected_precond = False
 
-        for idx, step in enumerate(steps):
+        for _idx, step in enumerate(steps):
             func = step["func"]
             params = {k: v for k, v in step.items() if k != "func"}
 
