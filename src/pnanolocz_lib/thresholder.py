@@ -501,14 +501,14 @@ def otsu_edges(
 
     # 5. Area cleanup (MATLAB: bwareaopen / hole fill)
     perimeter = remove_small_objects(perimeter, max_size=99, connectivity=2)
-    perimeter = remove_small_holes(perimeter, area_threshold=50, connectivity=2)
+    perimeter = remove_small_holes(perimeter, max_size=49, connectivity=2)
 
     # ---- 6. Dilation (MATLAB: imdilate(strel('disk',2)))
     thick_perim = dilation(perimeter, footprint=disk(2))
 
     # 7. Final cleanup
     thick_perim = remove_small_objects(thick_perim, max_size=99, connectivity=2)
-    thick_perim = remove_small_holes(thick_perim, area_threshold=50, connectivity=2)
+    thick_perim = remove_small_holes(thick_perim, max_size=49, connectivity=2)
 
     return np.asarray(thick_perim, dtype=np.bool_)
 
