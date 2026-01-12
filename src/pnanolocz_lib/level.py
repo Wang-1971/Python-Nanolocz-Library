@@ -8,15 +8,14 @@ for background planes, line-by-line drift, median offsets, and systematic
 row- or column-wise artefacts commonly observed in AFM topographic data.
 
 All public leveling functions accept an *exclusion mask* (same convention as
-``pnanolocz_lib.thresholder``): ``True`` = excluded, ``False`` = valid. Excluded pixels are
-omitted from fitting and summary statistics using MATLAB-style NaN-outside
+``pnanolocz_lib.thresholder``): ``True`` = excluded, ``False`` = valid.
+Excluded pixels are omitted from fitting using MATLAB-style NaN-outside
 semantics (i.e., excluded pixels behave like NaN during fitting) but are
 preserved in the output array.
 
 The implementation is a Python port of the MATLAB NanoLocz Library:
     https://github.com/George-R-Heath/NanoLocz-Matlab-Library
 Original MATLAB code by George Heath, University of Leeds.
-
 
 MATLAB alignment
 ----------------
