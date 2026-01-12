@@ -4,6 +4,7 @@ import warnings
 
 
 def pytest_configure(config) -> None:
+    """Configure pytest with custom warning filters for all tests."""
     # NumPy: nanmedian over all-NaN slices during background/median computations
     warnings.filterwarnings(
         "ignore",
