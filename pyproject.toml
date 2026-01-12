@@ -19,7 +19,7 @@ dependencies = [
     "matplotlib",
     "ruptures",
     "sknw",
-    "scikit-image"
+    "scikit-image",
 ]
 keywords = [
   # Core domain
