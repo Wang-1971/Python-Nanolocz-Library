@@ -1,54 +1,97 @@
 """
-Automated multi-frame leveling routines for AFM data.
+Automated leveling of AFM image stacks using MATLAB-aligned multi-step routines.
 
-This module implements automated, data-driven multi-frame leveling routines for
-Atomic Force Microscopy (AFM) image stacks. It applies sequences of background
-correction strategies—including polynomial plane fitting, line-based
-correction, threshold-based masking, and iterative refinement—to each frame in
-a stack.
+This module implements automated, data-driven background correction workflows
+for Atomic Force Microscopy (AFM) images and image stacks. Each routine applies
+an ordered sequence of leveling and masking operations—polynomial plane fits,
+line-based drift correction, region-weighted leveling, and iterative refinement—
+to improve background flattening across challenging frames.
 
-Ported from the MATLAB NanoLocz library, these routines support a variety of
-pre-defined workflows for common scenarios in high-speed and localization AFM.
+All routines operate frame-by-frame and reuse the public function contracts of
+``pnanolocz_lib.level``, ``pnanolocz_lib.level_weighted``, and
+``pnanolocz_lib.thresholder``. Masks follow the *exclusion mask* convention:
+``True`` = excluded, ``False`` = valid. Excluded pixels are omitted from fitting
+using MATLAB-style NaN-outside semantics (i.e., excluded pixels behave like NaN
+during fitting) but are preserved in the output arrays.
 
-Supported Routines
+The implementation is a Python port of the MATLAB NanoLocz Library:
+    https://github.com/George-R-Heath/NanoLocz-Matlab-Library
+Original MATLAB code by George Heath, University of Leeds.
+
+MATLAB alignment
+----------------
+This Python version aims for algorithmic and numerical alignment with the MATLAB
+reference implementation of ``level_auto.m``. Due to differences in underlying
+numerical libraries (NumPy/SciPy vs MATLAB), floating-point behaviour, and
+optimizer conditioning, results may not be bit-for-bit identical. Where
+relevant, this module documents intentional alignment decisions such as
+anisotropy-gated preconditioning and MATLAB-style Gaussian histogram fitting.
+
+Where in the MATLAB version the Gaussian histograms are fitted using the whole
+3D stack, in this Python version each 2D frame is fitted individually because
+each frame is processed independently. This is a known deviation from MATLAB
+and may be addressed in future versions.
+
+Available routines
 ------------------
-- plane-line
-- iterative 1nm high
-- iterative -1nm low
-- iterative high low
-- Line1 + Otsu Line2
-- high-low x2 (fit)
-- iterative fit holes
-- iterative fit peaks
-- multi-plane-edges
-- multi-plane-otsu
+Routines are selected by name via :func:`apply_level_auto` and are defined in
+the :data:`ROUTINES` mapping as an ordered list of steps. The supported routines
+mirror the MATLAB NanoLocz presets:
 
-Usage
------
+- ``plane-line``
+- ``iterative 1nm high``
+- ``iterative -1nm low``
+- ``iterative high low``
+- ``Line1 + Otsu Line2``
+- ``high-low x2 (fit)``
+- ``iterative fit holes``
+- ``iterative fit peaks``
+- ``multi-plane-edges``
+- ``multi-plane-otsu``
+
+Routine mechanics
+-----------------
+Each step is one of the following:
+
+- A leveling step via :func:`pnanolocz_lib.level.apply_level`
+  (e.g., ``plane``, ``line``, ``med_line``, ``mean_plane``).
+- A region-weighted leveling step via :func:`pnanolocz_lib.level_weighted.apply_level_weighted`
+  (e.g., weighted ``plane`` or weighted ``med_line``).
+- A masking step via :func:`pnanolocz_lib.thresholder.apply_thresholder`
+  which updates the current exclusion mask carried forward to subsequent steps.
+
+Some routines compute histogram bounds from a Gaussian fit to the image value
+distribution. These bounds are produced by fitting a MATLAB-style ``gauss1``
+model to a 100-bin histogram using SciPy and then forming thresholds from the
+fitted center and width.
+
+Anisotropy preconditioning
+--------------------------
+To match the MATLAB implementation, selected routines may inject a one-off
+``med_line`` preconditioning step after a specific trigger (typically
+``plane(polyx=1, polyy=1)``). The injection is gated by an anisotropy ratio
+computed from the standard deviation of row-mean and column-mean profiles.
+Policies are defined in :data:`PRECOND_POLICIES`.
+
+Stacks
+------
+Functions operate on single images with shape ``(H, W)`` and stacks with shape
+``(N, H, W)``. A 2D input is treated as a single-frame stack internally and is
+returned as 2D.
+
+Examples
+--------
 >>> from pnanolocz_lib.level_auto import apply_level_auto
->>> result = apply_level_auto(
-                img_stack,
-                routine="multi-plane-otsu"
-            )
+>>> leveled = apply_level_auto(stack, routine="multi-plane-otsu")
 
-Parameters
-----------
-Refer to `apply_level_auto` docstring below for detailed parameter
-descriptions.
-
-Notes
------
-Each routine is defined in the `ROUTINES` dictionary as an ordered list
-of steps.
-Steps may invoke `level`, `level_weighted`, or `apply_thresholder`, passing
-parameters for polynomial orders, threshold bounds, or other options.
+>>> img_leveled = apply_level_auto(img, routine="plane-line")
 
 Authors
 -------
 George Heath, University of Leeds (2025)
-D. E. Rollins, University of Leeds (2025)
+Daniel E. Rollins, University of Leeds (2025)
 
-This module is part of the pNanoLocz-Lib Python library for AFM analysis.
+This module is part of the ``pNanoLocz-Lib`` Python library for AFM analysis.
 """
 
 from typing import Any, Dict, Sequence, Tuple
@@ -284,7 +327,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "method": "plane",
         },
     ],
-    # Line level followered by Otsu threshold and a second line level
+    # Line level followed by Otsu threshold and a second line level
     "Line1 + Otsu Line2": [
         {
             "func": apply_level,
@@ -338,7 +381,7 @@ ROUTINES: Dict[str, Sequence[Dict[str, Any]]] = {
             "method": "med_line",
         },
     ],
-    # Iterativly fit holes
+    # Iteratively fit holes
     "iterative fit holes": [
         {
             "func": apply_level,
@@ -593,14 +636,29 @@ PRECOND_POLICIES: dict[str, dict] = {
 }
 
 
-# --- Per-step mask semantics for parity with MATLAB auto ----------------------
-MEAN_PLANE_NAN_MASK = {"multi-plane-edges", "multi-plane-otsu"}  # final step
-# All weighted steps use zeros-outside (boolean OK) – plain mean of W*img in level_weighted.
-
-
 def _matches_trigger(func_obj, params: dict, trigger_spec: dict) -> bool:
     """
-    Return True if the just-executed step matches the 'after_step' trigger.
+    Match a just-executed step against a preconditioning trigger specification.
+
+    Parameters
+    ----------
+    func_obj : callable
+        Function used by the executed step (e.g., ``apply_level``).
+    params : dict
+        Step parameters excluding ``func`` (e.g., ``{"method": "plane", "polyx": 1}``).
+    trigger_spec : dict
+        Trigger specification of the form ``{"after_step": {...}}`` where the
+        inner mapping may include ``func`` and any subset of step parameters.
+
+    Returns
+    -------
+    match : bool
+        True if the executed step matches the trigger specification, else False.
+
+    Notes
+    -----
+    - The function compares the trigger's ``func`` against ``func_obj.__name__``
+      and compares any remaining key/value pairs against entries in ``params``.
     """
     aft = trigger_spec.get("after_step", {})
     # func check
@@ -625,7 +683,32 @@ def _matches_trigger(func_obj, params: dict, trigger_spec: dict) -> bool:
 
 def _compute_anisotropy_ratio(img: np.ndarray) -> Tuple[float, float, float]:
     """
-    Compute std_x, std_y, ratio from row/col means on current image (NaN-safe).
+    Compute an anisotropy ratio from the standard deviation of row/column means.
+
+    The ratio is computed as ``std_y / std_x`` where:
+    ``std_x`` is the standard deviation of the column-mean profile and
+    ``std_y`` is the standard deviation of the row-mean profile.
+
+    Parameters
+    ----------
+    img : ndarray
+        2D image array. NaNs are ignored when computing means and standard
+        deviations.
+
+    Returns
+    -------
+    std_x : float
+        Standard deviation of the column means (X-direction profile).
+    std_y : float
+        Standard deviation of the row means (Y-direction profile).
+    ratio : float
+        ``std_y / std_x`` with guards for ``std_x == 0``. If ``std_x == 0`` and
+        ``std_y > 0``, ratio is ``inf``; if both are zero, ratio is ``0``.
+
+    Notes
+    -----
+    This mirrors the MATLAB logic used to decide whether to inject a
+    ``med_line`` preconditioning step.
     """
     col_means = np.nanmean(img, axis=0)
     row_means = np.nanmean(img, axis=1)
@@ -646,14 +729,47 @@ def _maybe_inject_precond(
     params: dict,
     injected: bool,
     *,
-    # dependency injections for testing
     apply_level_fn=None,
     debug: bool = False,
 ) -> Tuple[np.ndarray, bool]:
     """
-    If 'routine' has a preconditioning policy and this step matches its trigger,
-    compute anisotropy and, if a gate passes, inject a med_line precondition.
-    Returns (possibly-modified img, injected_flag).
+    Inject a preconditioning leveling step when a routine-specific gate fires.
+
+    If the current routine declares a preconditioning policy and the just-run
+    step matches its trigger, this function computes the anisotropy ratio and
+    applies the first gate that passes by injecting a ``med_line`` step.
+
+    Parameters
+    ----------
+    img : ndarray
+        Current 2D image state after executing the step under consideration.
+    routine : str
+        Routine name used to look up a policy in ``PRECOND_POLICIES``.
+    func_obj : Any
+        Function object for the executed step (e.g., ``apply_level``).
+    params : dict
+        Parameters used for the executed step (excluding ``func``).
+    injected : bool
+        Whether a preconditioning step has already been injected for this frame.
+        If True, no further injections occur.
+    apply_level_fn : callable, optional
+        Dependency injection hook for testing. If not provided, ``apply_level``
+        is imported lazily.
+    debug : bool, default False
+        If True, print diagnostic messages about the decision and injection.
+
+    Returns
+    -------
+    img_out : ndarray
+        Image, possibly modified by an injected preconditioning step.
+    injected_out : bool
+        Updated injection flag.
+
+    Notes
+    -----
+    - At most one preconditioning injection is performed per frame.
+    - The injected call uses ``mask=None`` to mimic the MATLAB preconditioning
+      behavior (preconditioning is based on global structure, not masking).
     """
     if injected:
         return img, True
@@ -697,6 +813,21 @@ def _maybe_inject_precond(
 
 
 def _gauss1_model(x, a1, b1, c1):
+    """
+    Evaluate a MATLAB-style single-Gaussian model used for histogram fitting.
+
+    Parameters
+    ----------
+    x : ndarray
+        Histogram bin centers.
+    a1, b1, c1 : float
+        MATLAB ``gauss1`` parameters: ``a1 * exp(-((x - b1)^2) / c1^2)``.
+
+    Returns
+    -------
+    y : ndarray
+        Model values at ``x``.
+    """
     # MATLAB gauss1: a1 * exp(-((x - b1)^2) / c1^2)
     return a1 * np.exp(-((x - b1) ** 2) / (c1**2))
 
@@ -705,42 +836,39 @@ def _compute_gauss_limits(
     image: np.ndarray[Any, np.dtype[np.float64]], kind: str
 ) -> tuple[float, float]:
     """
-    Compute intensity threshold limits from a Gaussian fit to the image data.
+    Compute threshold bounds by fitting a MATLAB-style Gaussian to a histogram.
+
+    This function replicates the MATLAB pattern:
+    ``[hy, x] = hist(double(t(:)), 100); gfit = fit(x', hy', 'gauss1')`` and then
+    forms bounds from the fitted center and width. NaNs in the image are ignored.
 
     Parameters
     ----------
-    image : np.ndarray
-        2D image array from which to compute Gaussian-based thresholds. NaN
-        values are ignored.
+    image : ndarray
+        2D image used to derive histogram-based Gaussian limits. NaNs are ignored.
     kind : str
-        Type of Gaussian thresholding to apply. Must be one of:
-        - 'gauss_fit'   : Return symmetric limits around the
-        mean (mu ± 1.5 * sigma).
-        - 'gauss_holes' : Return lower-bound threshold (mu - 1.5 * sigma, ∞),
-        for dark features.
-        - 'gauss_peaks' : Return upper-bound threshold (-∞, mu + 1.5 * sigma),
-        for bright features.
+        Gaussian limit policy to apply. Must be one of:
+
+        - ``'gauss_fit'``   : symmetric limits ``(b1 - 1.5*c1, b1 + 1.5*c1)``
+        - ``'gauss_holes'`` : low limit for dark features ``(b1 - 1.5*c1, +inf)``
+        - ``'gauss_peaks'`` : high limit for bright features ``(-inf, b1 + 1.5*c1)``
 
     Returns
     -------
-    limits : tuple of float
-        The (low, high) threshold bounds based on the Gaussian fit.
+    low, high : float
+        The computed intensity bounds.
 
     Raises
     ------
     ValueError
-        If `kind` is not a recognized thresholding type.
+        If ``kind`` is not recognized.
 
     Notes
     -----
-    The method fits a single normal distribution to the image values using
-    `scipy.stats.norm.fit`, then derives bounds based on 1.5 standard
-    deviations from the mean. Useful for automatic intensity-based masking.
-
-    Examples
-    --------
-    >>> low, high = _compute_gauss_limits(img, 'gauss_peaks')
-    >>> mask = (img >= low) & (img <= high)
+    - The fit is performed using ``scipy.optimize.curve_fit`` on a 100-bin
+      histogram of the finite image values, using the model
+      ``a1 * exp(-((x - b1)^2) / c1^2)`` (MATLAB ``gauss1``).
+    - These limits are intended for use with the histogram thresholder step.
     """
     # flatten and drop NaNs
     data = image.ravel()
@@ -791,28 +919,42 @@ def apply_level_auto(
     routine: str,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Apply leveling "routines" across specified frames of an AFM image stack.
+    Apply an automated leveling routine to each frame of an AFM image stack.
 
     Parameters
     ----------
     img_stack : ndarray
-        AFM image stack. Shape can be (H, W) or (N, H, W).
+        AFM image input with shape ``(H, W)`` (single image) or ``(N, H, W)``
+        (stack). The output has the same shape as the input.
     routine : str
-        Name of a routine defined in ROUTINES.
+        Name of a routine defined in ``ROUTINES`` (e.g., ``'multi-plane-otsu'``).
 
     Returns
     -------
     result : ndarray
-        Same shape as img_stack (2D or 3D), with selected frames leveled.
+        Leveled image or stack with the same shape as ``img_stack``.
 
     Raises
     ------
     ValueError
-        If the specified routine is not found or input shape is invalid.
-    IndexError
-        If any frame index is out of bounds.
-    """
+        If ``img_stack`` is not 2D/3D or if ``routine`` is not found in
+        ``ROUTINES``.
 
+    Notes
+    -----
+    - Each routine is an ordered list of steps. Steps may call ``apply_level``,
+      ``apply_level_weighted``, or ``apply_thresholder``.
+    - Thresholding steps compute an *exclusion mask* (``True = excluded``,
+      ``False = valid``) which is carried forward and passed to subsequent
+      leveling steps until replaced by a later thresholding step.
+    - Preconditioning (anisotropy-gated ``med_line``) is applied at most once
+      per frame according to ``PRECOND_POLICIES``.
+    - Gaussian-derived histogram bounds are computed by fitting a single
+      Gaussian to a 100-bin histogram (MATLAB ``gauss1``-style) via
+      ``_compute_gauss_limits`` when a thresholder step declares ``args=['gauss_*']``.
+    - The Gaussian-derived histogram bounds are calculated for each frame rather
+      than globally across the stack, diverging from MATLAB behavior.
+    """
     img_stack = np.asarray(img_stack)
     if img_stack.ndim == 2:
         img_stack = img_stack[np.newaxis, :, :]
@@ -873,7 +1015,7 @@ def apply_level_auto(
                 func_obj=func,
                 params=params,
                 injected=injected_precond,
-                debug=True,
+                debug=False,
             )
 
             result[i] = img
