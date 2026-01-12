@@ -22,16 +22,29 @@ def test_routines_contains_expected_names():
 # ------------------------------
 
 
-def test_compute_gauss_limits_fit_band_is_mu_pm_1p5_sigma():
-    """Returns limits close to μ ± 1.5sigma for 'gauss_fit' with NaN-tolerant fit."""
+def test_compute_gauss_limits_fit_band_is_mu_pm_1p5_sqrt2_sigma():
+    """'gauss_fit' uses gauss1 width (c1), so limits ≈ μ ± 1.5*sqrt(2)*σ."""
     rng = np.random.default_rng(0)
-    # Target μ ≈ 5, σ ≈ 2 with some NaNs sprinkled in
-    base = rng.normal(loc=5.0, scale=2.0, size=30_000)
-    base[::97] = np.nan
+    base = rng.normal(loc=5.0, scale=2.0, size=30_000).astype(float)
+    base[::97] = np.nan  # sprinkle NaNs to exercise NaN-safe path
+
     lo, hi = _compute_gauss_limits(base, "gauss_fit")
-    # Expected band ~ [5 - 3, 5 + 3] with small tolerance
-    assert abs((5.0 - 3.0) - lo) < 0.4
-    assert abs((5.0 + 3.0) - hi) < 0.4
+
+    # Empirical μ, σ over finite values
+    finite = base[np.isfinite(base)]
+    mu = float(np.mean(finite))
+    sigma = float(np.std(finite, ddof=0))
+
+    # For gauss1, band is μ ± 1.5*sqrt(2)*σ (since c1 = sqrt(2)*σ)
+    expected_delta = 1.5 * np.sqrt(2.0) * sigma
+
+    # Allow a modest tolerance to account for histogram binning + fit noise
+    assert abs((mu - expected_delta) - lo) < 0.5
+    assert abs((mu + expected_delta) - hi) < 0.5
+
+    # Optional symmetry check around the empirical center
+    center = 0.5 * (lo + hi)
+    assert abs(center - mu) < 0.25
 
 
 def test_compute_gauss_limits_peaks_and_holes_shapes():

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from pnanolocz_lib.thresholder import (
+    apply_thresholder,
     auto_edges,
     hist_edges,
     hist_skel,
@@ -13,22 +14,11 @@ from pnanolocz_lib.thresholder import (
     otsu_edges,
     otsu_skel,
     selection,
-    thresholder,
-    to_nan_mask,
 )
 
 # ---------------------------------------------------------------------
 # Basic helpers
 # ---------------------------------------------------------------------
-
-
-def test_to_nan_mask_basic():
-    """Converts boolean mask to float mask with 1.0 for True and NaN for False."""
-    m = np.array([[True, False], [False, True]])
-    out = to_nan_mask(m)
-    assert out.dtype == float
-    assert np.all(out[m] == 1.0)
-    assert np.all(np.isnan(out[~m]))
 
 
 def test_selection_passthrough_boolean():
@@ -180,25 +170,54 @@ def test_hist_skel_with_limits():
 
 
 @pytest.mark.skipif(
-    pytest.importorskip("ruptures") is None, reason="ruptures not available"
+    __import__("importlib").util.find_spec("ruptures") is None,
+    reason="ruptures not available",
 )
-def test_line_step_detects_left_segment_when_increasing():
-    """Marks left segment when a clear upward step is detected in a row."""
-    x = np.r_[np.zeros(40), np.ones(40)]  # step at 40
-    img = np.vstack([x, np.zeros_like(x)])
-    out = line_step(img, limits=(0.0, 5.0))
+def test_line_step_detects_segments_upward_step():
+    """Upward step: left segment valid (False), right segment excluded (True)."""
+    # Row 0: clear upward step at 40
+    x = np.r_[np.zeros(40), np.ones(40)]  # 0..39=0, 40..79=1
+    img = np.vstack([x, np.zeros_like(x)])  # second row is all zeros (no CPs)
+
+    # Use a modest penalty so PELT finds the CP on clean data
+    out = line_step(img, limits=(0.0, 1.0))  # limits[1] is the penalty
+
     row0 = out[0]
-    assert np.all(row0[:40])  # excluded (True)
-    assert not np.any(row0[40:])  # valid (False)
+    # MATLAB: xp(1:40)=1 -> valid; xp(40:end)=NaN -> excluded
+    assert not np.any(row0[:40])  # left valid  → False
+    assert np.all(row0[40:])  # right excl. → True
+
+    # Row 1 has no change points: should be all-valid
+    row1 = out[1]
+    assert not row1.any()
 
 
-def test_line_step_validates_limits_type_and_presence():
-    """Raises for missing limits or incorrect type."""
+def test_line_step_handles_missing_limits_gracefully(capfd):
+    """Missing limits: no raise; returns all-valid (False) mask and prints a message."""
     img = np.zeros((3, 10))
-    with pytest.raises(ValueError):
-        line_step(img, limits=None)
-    with pytest.raises(TypeError):
-        line_step(img, limits="not-a-tuple")
+    out = line_step(img, limits=None)
+
+    assert out.shape == img.shape
+    assert out.dtype == np.bool_
+    # all-valid: no exclusions
+    assert not out.any()
+
+    # optional: assert the message was printed
+    captured = capfd.readouterr()
+    assert "limits must be" in captured.out  # or a more specific substring
+
+
+def test_line_step_handles_wrong_limits_type_gracefully(capfd):
+    """Wrong type: no raise; returns all-valid (False) mask and prints a message."""
+    img = np.zeros((3, 10))
+    out = line_step(img, limits="not-a-tuple")
+
+    assert out.shape == img.shape
+    assert out.dtype == np.bool_
+    assert not out.any()
+
+    captured = capfd.readouterr()
+    assert "limits must be" in captured.out
 
 
 # ---------------------------------------------------------------------
@@ -210,14 +229,14 @@ def test_thresholder_unknown_method_raises():
     """Raises ValueError for an unknown thresholding method name."""
     img = np.zeros((8, 8))
     with pytest.raises(ValueError):
-        thresholder(img, method="unknown", limits=None)
+        apply_thresholder(img, method="unknown", limits=None)
 
 
 def test_thresholder_invert_flips_true_and_false():
     """Inverts mask so True becomes False and False becomes True."""
     img = _synthetic_square()
-    m = thresholder(img, method="otsu", limits=None, invert=False)
-    inv = thresholder(img, method="otsu", limits=None, invert=True)
+    m = apply_thresholder(img, method="otsu", limits=None, invert=False)
+    inv = apply_thresholder(img, method="otsu", limits=None, invert=True)
 
     # Both should have same shape
     assert m.shape == inv.shape
@@ -232,7 +251,7 @@ def test_thresholder_stack_3d_applies_per_frame():
     img2d_a = rng.normal(size=(32, 32))
     img2d_b = rng.normal(size=(32, 32))
     stack = np.stack([img2d_a, img2d_b], axis=0)
-    out = thresholder(stack, method="histogram", limits=(-0.5, 0.5))
+    out = apply_thresholder(stack, method="histogram", limits=(-0.5, 0.5))
     # shape is preserved
     assert out.shape == stack.shape
 
