@@ -293,7 +293,7 @@ def level_weighted_plane(
     n_regions = len(regions)
 
     if n_regions == 0:
-        return img_f.copy()
+        return np.asarray(img_f.copy(), dtype=np.float64)
 
     region_pixel_counts = np.zeros(n_regions, dtype=float)
 
@@ -309,9 +309,8 @@ def level_weighted_plane(
         # Nanolocz- build regionMatrix (here region_masked)
         region_masked = np.full(img_f.shape, np.nan, dtype=float)
         region_masked.flat[region_indices] = img_f.flat[region_indices]
-        region_pixel_counts[i] = (
-            region_indices.size
-        )  # w(i) in MATLAB Nanolocz George says w is weighting
+        # w(i) in MATLAB Nanolocz George says w is weighting
+        region_pixel_counts[i] = region_indices.size
 
         # X-direction: mean of each column within region
         with warnings.catch_warnings():
@@ -536,7 +535,7 @@ def level_weighted_line(
             lines_y[:, cc] = _polyval_centered(py_w[cc, :], mu_col, ygrid_1b)
         r = r - lines_y
 
-    return r
+    return np.asarray(r, dtype=np.float64)
 
 
 def level_weighted_med_line(
@@ -576,7 +575,7 @@ def level_weighted_med_line(
     rows, cols = img_f.shape
     n_regions = len(regions)
     if n_regions == 0:
-        return img_f.copy()
+        return np.asarray(img_f.copy(), dtype=np.float64)
 
     # Initialize arrays
     w = np.zeros((rows, n_regions), dtype=float)
@@ -608,7 +607,7 @@ def level_weighted_med_line(
     r = img_f.copy()
     r[~pos, :] = img_f[~pos, :] - yf[~pos, None]
 
-    return r
+    return np.asarray(r, dtype=np.float64)
 
 
 def level_weighted_med_line_y(
@@ -648,7 +647,7 @@ def level_weighted_med_line_y(
     rows, cols = img_f.shape
     n_regions = len(regions)
     if n_regions == 0:
-        return img_f.copy()
+        return np.asarray(img_f.copy(), dtype=np.float64)
 
     w = np.zeros((cols, n_regions), dtype=float)
     y1 = np.zeros((cols, n_regions), dtype=float)
@@ -677,7 +676,7 @@ def level_weighted_med_line_y(
     pos = w.sum(axis=1) == 0
     r = img_f.copy()
     r[:, ~pos] = img_f[:, ~pos] - yf[~pos][None, :]
-    return r
+    return np.asarray(r, dtype=np.float64)
 
 
 # --- helper: MATLAB-like movmedian (include NaNs), centered, even window ---
@@ -744,7 +743,7 @@ def level_weighted_smed_line(
     rows, cols = img_f.shape
     n_regions = len(regions)
     if n_regions == 0:
-        return img_f.copy()
+        return np.asarray(img_f.copy(), dtype=np.float64)
 
     # per-region row medians with >2 guard, and region backgrounds
     w = np.zeros((rows, n_regions), dtype=float)
@@ -781,7 +780,7 @@ def level_weighted_smed_line(
     # subtract the SMOOTHED BASELINE ITSELF on rows with coverage
     r = img_f.copy()
     r[~zero_rows, :] = img_f[~zero_rows, :] - yf_sm[~zero_rows, None]
-    return r
+    return np.asarray(r, dtype=np.float64)
 
 
 def apply_level_weighted(

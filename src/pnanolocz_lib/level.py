@@ -188,7 +188,7 @@ def level_plane(
 
     # Global gate: must have >5 valid pixels overall (matches MATLAB intent)
     if m.sum() <= 5:
-        return arr.copy()
+        return np.asarray(arr.copy(), dtype=np.float64)
 
     # ========== X DIRECTION ==========
     # Column-wise masked mean with NaN-outside semantics
@@ -199,7 +199,7 @@ def level_plane(
     valid_columns = ~np.isnan(column_means)
     if valid_columns.sum() <= polyx:
         # Not enough points to fit X polynomial
-        return arr.copy()
+        return np.asarray(arr.copy(), dtype=np.float64)
 
     # 1-based indices (MATLAB uses 1..W)
     column_indices = (np.nonzero(valid_columns)[0] + 1).astype(np.float64)
@@ -208,7 +208,7 @@ def level_plane(
     col_centroid = column_indices.mean()
     col_scale = column_indices.std(ddof=0)
     if col_scale == 0:  # very rare, but prevents divide-by-zero
-        return arr.copy()
+        return np.asarray(arr.copy(), dtype=np.float64)
 
     standardized_columns = (column_indices - col_centroid) / col_scale
 
