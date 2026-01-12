@@ -42,7 +42,7 @@ pip install .
 import numpy as np
 from pnanolocz_lib.level import apply_level
 from pnanolocz_lib.level_auto import apply_level_auto
-from pnanolocz_lib.thresholder import thresholder
+from pnanolocz_lib.thresholder import apply_thresholder
 
 # 1) Polynomial plane leveling
 img = np.load("frame.npy")        # (H,W)
@@ -53,7 +53,7 @@ stack = np.load("stack.npy")      # (N,H,W)
 out = apply_level_auto(stack, routine="multi-plane-otsu")
 
 # 3) Otsu mask
-mask = thresholder(img, method="otsu", limits=None)
+mask = apply_thresholder(img, method="otsu", limits=None)
 ```
 
 ---
@@ -82,7 +82,11 @@ mask = thresholder(img, method="otsu", limits=None)
 - **`pnanolocz_lib.thresholder`**
   Intensity / edge detection: histogram, Otsu, auto edges, skeleton, step detection.
 
-    Available thresholds:
+  Typical usage involves calling the `apply_thresholder()` function with an image (2D)
+  or image stack (3D) and specifying the desired method and polynomial orders.
+  (see Quickstart above for an example)
+
+    Available thresholder funcitons:
 
 | Method       | Description |
 |--------------|-------------|
@@ -109,16 +113,21 @@ mask = thresholder(img, method="otsu", limits=None)
 | `high-low x2 (fit)`      | Two‑stage plane + median line leveling, with Gaussian‑fit histogram threshold in between.     |
 | `iterative fit holes`    | Iterative plane + median line leveling, masking “holes” via Gaussian‑fit low‑side threshold.  |
 | `iterative fit peaks`    | Iterative plane + median line leveling, masking “peaks” via Gaussian‑fit high‑side threshold. |
-| `multi-plane-edges`      | Not yet implemented.                                                                          |
-| `multi-plane-otsu`       | Not yet implemented.                                                                          |
+| `multi-plane-edges`      | Iterative plane and region-weighted plane leveling using edge-based masks.                    |
+| `multi-plane-otsu`       | Iterative plane and region-weighted plane leveling using Otsu-derived edge masks.             |
 
 ---
 
 ## 📝 Citation
 
 If you use this library, please cite:
-Heath, G.R. et al. *NanoLocz: Image analysis platform for AFM, high‑speed AFM and localization AFM.*
-Small Methods 2024, 2301766. <https://doi.org/10.1002/smtd.202301766>
+> Heath, G.R. et al. *NanoLocz: Image analysis platform for AFM, high‑speed AFM and localization AFM.*
+> Small Methods 2024, 2301766. <https://doi.org/10.1002/smtd.202301766>
+
+and
+
+> Rollins, D. E., & Heath, G. R. (2025). *Python-NanoLocz-Library: A Python implementation of the NanoLocz AFM leveling and
+> analysis tools*. University of Leeds. <https://github.com/derollins/Python-Nanolocz-Library>
 
 ---
 
