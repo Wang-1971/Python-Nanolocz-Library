@@ -86,7 +86,7 @@ mask = apply_thresholder(img, method="otsu", limits=None)
   or image stack (3D) and specifying the desired method and polynomial orders.
   (see Quickstart above for an example)
 
-    Available thresholder funcitons:
+    Available thresholder functions:
 
 | Method       | Description |
 |--------------|-------------|
