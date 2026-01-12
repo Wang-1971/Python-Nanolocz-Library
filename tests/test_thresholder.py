@@ -32,11 +32,13 @@ def test_to_nan_mask_basic():
 
 
 def test_selection_passthrough_boolean():
-    """Treats nonzero input as True and returns a NaN-masked float image."""
+    """Treats nonzero input as True and returns a boolean mask."""
     m = np.array([[1, 0], [0, 1]], dtype=np.uint8)
     out = selection(m, None)
-    assert np.all(out[m.astype(bool)] == 1.0)
-    assert np.all(np.isnan(out[~m.astype(bool)]))
+    # included pixels (nonzero) are False → ~out True
+    assert np.all(~out[m.astype(bool)])
+    # excluded pixels (zero) are True
+    assert np.all(out[~m.astype(bool)])
 
 
 # ---------------------------------------------------------------------
@@ -49,8 +51,9 @@ def test_histogram_inclusive_range_and_validation():
     img = np.linspace(0, 1, 10).reshape(2, 5)
     out = histogram(img, limits=(0.2, 0.6))
     mask = (img >= 0.2) & (img <= 0.6)
-    assert np.all((out[mask] == 1.0))
-    assert np.all(np.isnan(out[~mask]))
+    assert np.all(~out[mask])  # inside range → False
+    assert np.all(out[~mask])  # outside range → True
+
     with pytest.raises(ValueError):
         histogram(img, limits=None)
     with pytest.raises(ValueError):
@@ -63,14 +66,15 @@ def test_histogram_inclusive_range_and_validation():
 
 
 def test_otsu_bimodal():
-    """Produces both kept (1.0) and excluded (NaN) regions for a bimodal image."""
+    """Produces both kept (True) and excluded (False) regions for a bimodal image."""
     rng = np.random.default_rng(0)
     a = rng.normal(0.2, 0.02, size=(30, 30))
     b = rng.normal(0.8, 0.02, size=(30, 30))
     img = np.block([[a, a], [b, b]])  # 60x60 bimodal
+
     out = otsu(img, None)
-    kept = np.sum(out == 1.0)
-    dropped = np.sum(np.isnan(out))
+    kept = np.sum(out)  # True pixels
+    dropped = np.sum(~out)  # False pixels
     assert kept > 0 and dropped > 0
 
 
@@ -91,36 +95,51 @@ def test_auto_edges_finds_edges_safely():
     img = _synthetic_square()
     out = auto_edges(img, None)
     assert out.shape == img.shape
-    assert np.isnan(out).any()
-    assert (out == 1.0).any()
+    assert np.any(out)  # some True values
+    assert np.any(~out)
 
 
 def test_hist_edges_and_validation():
     """Detects edges using intensity limits and validates limit shape."""
     img = _synthetic_square()
     out = hist_edges(img, limits=(0.25, 0.75))
+    # There should be both included (True) and excluded/edges (False) pixels
     assert out.shape == img.shape
-    assert np.isnan(out).any() and (out == 1.0).any()
+    assert np.any(out)  # some True pixels (kept regions)
+    assert np.any(~out)  # some False pixels (edges/excluded)
+
     with pytest.raises(ValueError):
         hist_edges(img, limits=None)
 
 
 def test_otsu_edges_detects_transition():
-    """Finds transitions after Otsu thresholding and marks them as NaN."""
-    # Use vertical stripes to guarantee many transitions that survive smoothing.
-    # This is more robust across skimage/NumPy builds than a single square.
+    """Mask output is boolean and has correct shape."""
     h, w = 64, 64
-    one_band = np.r_[np.zeros(4), np.ones(4)]  # 8-pixel period
+    one_band = np.r_[np.zeros(16), np.ones(16)]
     row = np.tile(one_band, w // one_band.size)
     img = np.tile(row, (h, 1)).astype(float)
 
     out = otsu_edges(img, None)
     assert out.shape == img.shape
-    # Primary expectation: edges (NaN) plus non-edges (1.0)
-    if not (np.isnan(out).any() and (out == 1.0).any()):
-        # Fallback: in rare environments the edge pipeline may produce no edges.
-        # In that case, ensure at least the mask is valid (all ones).
-        assert np.all(out == 1.0)
+    assert out.dtype == bool
+
+
+def test_otsu_edges_detects_transition_realistic():
+    """Detects edges for a synthetic gradient split image with sufficient width."""
+    h, w = 64, 64
+    # Wide transition region (16 pixels) to survive Gaussian smoothing sigma=2
+    img = np.zeros((h, w), dtype=float)
+    img[:, : w // 2 - 8] = 0.0  # left dark
+    img[:, w // 2 + 8 :] = 1.0  # right bright
+    img[:, w // 2 - 8 : w // 2 + 4] = 0.5  # middle gradient
+
+    out = otsu_edges(img, None)
+
+    assert out.shape == img.shape
+    assert out.dtype == bool
+    # There should be both kept and edge pixels
+    assert np.any(out)  # some kept
+    assert np.any(~out)  # some edges
 
 
 # ---------------------------------------------------------------------
@@ -134,18 +153,25 @@ def test_otsu_skel_returns_mask_with_nans_and_ones():
     img = _synthetic_square(64, 64, 8, 56, 28, 36)  # thin vertical bar inside
     out = otsu_skel(img, None)
     assert out.shape == img.shape
-    assert np.isnan(out).any()
-    assert (out == 1.0).any()
+    # Should have some True values (skeleton)
+    assert np.any(out)
+    assert np.any(~out)
 
 
 @pytest.mark.skipif(pytest.importorskip("sknw") is None, reason="sknw not available")
 def test_hist_skel_with_limits():
-    """Skeletonizes histogram-selected regions and returns NaN outside skeleton."""
+    """Skeletonizes histogram-selected regions and returns False outside skeleton."""
     img = _synthetic_square(64, 64, 8, 56, 31, 33)  # narrow vertical stripe
     out = hist_skel(img, limits=(0.25, 0.75))
+
+    # Shape is preserved
     assert out.shape == img.shape
-    assert np.isnan(out).any()
-    assert (out == 1.0).any()
+
+    # Should have some True values (skeleton)
+    assert np.any(out)
+
+    # Should have some False values (outside skeleton)
+    assert np.any(~out)
 
 
 # ---------------------------------------------------------------------
@@ -162,8 +188,8 @@ def test_line_step_detects_left_segment_when_increasing():
     img = np.vstack([x, np.zeros_like(x)])
     out = line_step(img, limits=(0.0, 5.0))
     row0 = out[0]
-    assert np.all(row0[:40] == 1)
-    assert np.all(np.isnan(row0[40:]))
+    assert np.all(row0[:40])  # excluded (True)
+    assert not np.any(row0[40:])  # valid (False)
 
 
 def test_line_step_validates_limits_type_and_presence():
@@ -187,13 +213,17 @@ def test_thresholder_unknown_method_raises():
         thresholder(img, method="unknown", limits=None)
 
 
-def test_thresholder_invert_flips_nans_and_ones():
-    """Inverts mask so previous NaNs become 1.0 and 1.0 becomes NaN."""
+def test_thresholder_invert_flips_true_and_false():
+    """Inverts mask so True becomes False and False becomes True."""
     img = _synthetic_square()
     m = thresholder(img, method="otsu", limits=None, invert=False)
     inv = thresholder(img, method="otsu", limits=None, invert=True)
-    assert np.all((m == 1.0) == np.isnan(inv))
-    assert np.all(np.isnan(m) == (inv == 1.0))
+
+    # Both should have same shape
+    assert m.shape == inv.shape
+
+    # Inversion should be logical negation
+    assert np.all(inv == np.logical_not(m))
 
 
 def test_thresholder_stack_3d_applies_per_frame():
@@ -203,6 +233,12 @@ def test_thresholder_stack_3d_applies_per_frame():
     img2d_b = rng.normal(size=(32, 32))
     stack = np.stack([img2d_a, img2d_b], axis=0)
     out = thresholder(stack, method="histogram", limits=(-0.5, 0.5))
+    # shape is preserved
     assert out.shape == stack.shape
-    assert np.isnan(out[0]).any() and (out[0] == 1.0).any()
-    assert np.isnan(out[1]).any() and (out[1] == 1.0).any()
+
+    # expect boolean mask: at least one True and one False per frame
+    for i in range(out.shape[0]):
+        frame = out[i]
+        assert frame.dtype == bool
+        assert frame.any()  # at least one True (selected)
+        assert (~frame).any()  # at least one False (excluded)
