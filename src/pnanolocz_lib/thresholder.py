@@ -86,10 +86,9 @@ import sknw
 from scipy.ndimage import binary_fill_holes, gaussian_filter, sobel
 from skimage.filters import threshold_otsu
 from skimage.morphology import (
-    binary_closing,
-    binary_dilation,
-    binary_erosion,
+    closing,
     diamond,
+    dilation,
     disk,
     erosion,
     footprint_rectangle,
@@ -326,15 +325,15 @@ def auto_edges(
     bw = grad > thresh  # bw : binary edge mask (foreground)
 
     # 4. Remove small connected components (MATLAB bwareaopen equivalents)
-    bw = remove_small_objects(bw, min_size=100)
-    bw = ~remove_small_objects(~bw, min_size=50)
+    bw = remove_small_objects(bw, max_size=99)
+    bw = ~remove_small_objects(~bw, max_size=49)
 
     # 5. Morphological cleanup
     se = diamond(4)  # se = structuring element
-    bw = binary_closing(bw, footprint=se)
-    bw = binary_dilation(bw, footprint=se)
-    bw = binary_closing(bw, footprint=se)
-    bw = binary_dilation(bw, footprint=se)
+    bw = closing(bw, footprint=se)
+    bw = dilation(bw, footprint=se)
+    bw = closing(bw, footprint=se)
+    bw = dilation(bw, footprint=se)
 
     # 6. Mimic MATLAB bwmorph('bridge')
     # small closing to connect nearby pixels
@@ -342,11 +341,11 @@ def auto_edges(
     # Approximate MATLAB bwmorph('bridge'):
 
     x3 = np.array([[1, 0, 1], [0, 1, 0], [1, 0, 1]], dtype=bool)  # 3x3 X-shape
-    bw = binary_closing(bw, footprint=x3)
+    bw = closing(bw, footprint=x3)
 
     fp = diamond(1)  # gentler than disk(1)
     for _ in range(max(1, 3)):
-        bw = binary_erosion(bw, footprint=fp)
+        bw = erosion(bw, footprint=fp)
 
     # 7. Return boolean mask where True = excluded
     return np.asarray(bw, dtype=np.bool_)
@@ -424,7 +423,7 @@ def hist_edges(
     perimeter = inverted & ~eroded  # retain only perimeter pixels
 
     # 5. Thicken perimeter (MATLAB: imdilate(strel('disk',3)))
-    thick_perim = binary_dilation(perimeter, footprint=disk(3))
+    thick_perim = dilation(perimeter, footprint=disk(3))
 
     # Returns the dilated perimeter as the exclusion mask (True = excluded).
     return np.asarray(thick_perim, dtype=np.bool_)
@@ -501,14 +500,14 @@ def otsu_edges(
     perimeter = inverted & ~eroded
 
     # 5. Area cleanup (MATLAB: bwareaopen / hole fill)
-    perimeter = remove_small_objects(perimeter, min_size=100, connectivity=2)
+    perimeter = remove_small_objects(perimeter, max_size=99, connectivity=2)
     perimeter = remove_small_holes(perimeter, area_threshold=50, connectivity=2)
 
     # ---- 6. Dilation (MATLAB: imdilate(strel('disk',2)))
-    thick_perim = binary_dilation(perimeter, footprint=disk(2))
+    thick_perim = dilation(perimeter, footprint=disk(2))
 
     # 7. Final cleanup
-    thick_perim = remove_small_objects(thick_perim, min_size=100, connectivity=2)
+    thick_perim = remove_small_objects(thick_perim, max_size=99, connectivity=2)
     thick_perim = remove_small_holes(thick_perim, area_threshold=50, connectivity=2)
 
     return np.asarray(thick_perim, dtype=np.bool_)
@@ -603,7 +602,7 @@ def _skeletonize_frame(
     pruned = prune_skeleton_min_branch_length(skel, min_branch_length)
 
     # Cleanup similar to MATLAB spur/clean
-    cleaned = binary_dilation(pruned)
+    cleaned = dilation(pruned)
 
     return np.asarray(cleaned, dtype=np.bool_)
 
@@ -871,7 +870,7 @@ def adaptive(
     2) Edge detection (Python: Sobel magnitude + Otsu on magnitude;
        MATLAB: `edge(...,'sobel')`)
     3) Morphological closing (`imclose(strel('disk',10))`)
-    4) Remove small objects (`bwareaopen`, min_size=10)
+    4) Remove small objects (`bwareaopen`, max_size=9)
     5) Dilate with line SEs: `imdilate(line,10,90)` then `imdilate(line,10,0)`
     6) Pad left/right columns with ones (edge guard)
     7) Fill holes (`imfill('holes')`)
@@ -937,16 +936,16 @@ def adaptive(
         T = sob > 0  # fallback
 
     # 3) Closing with disk(10)
-    T = binary_closing(T, footprint=disk(10))
+    T = closing(T, footprint=disk(10))
 
     # 4) bwareaopen with size=10
-    T = remove_small_objects(T, min_size=10)
+    T = remove_small_objects(T, max_size=9)
 
     # 5) Dilate with line(10,90) then line(10,0)
     se_line_vert = np.ones((10, 1), dtype=bool)  # line length 10, angle 90
     se_line_horiz = np.ones((1, 10), dtype=bool)  # line length 10, angle 0
-    dil = binary_dilation(T, footprint=se_line_vert)
-    dil = binary_dilation(dil, footprint=se_line_horiz)
+    dil = dilation(T, footprint=se_line_vert)
+    dil = dilation(dil, footprint=se_line_horiz)
 
     # 6) Pad columns by 1 with ones
     padded = np.pad(dil, ((0, 0), (1, 1)), mode="constant", constant_values=True)
@@ -955,8 +954,8 @@ def adaptive(
     filled = binary_fill_holes(padded)
 
     # 8) Erode with horizontal then vertical line SEs
-    er1 = binary_erosion(filled, footprint=se_line_horiz)
-    er2 = binary_erosion(er1, footprint=se_line_vert)
+    er1 = erosion(filled, footprint=se_line_horiz)
+    er2 = erosion(er1, footprint=se_line_vert)
 
     # 9) Remove padding
     Dfin = er2[

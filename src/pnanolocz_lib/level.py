@@ -315,17 +315,16 @@ def level_line(
 
         img_width = arr.shape[1]
         for i in range(arr.shape[0]):
-            pos = m[i, :]  # True = valid pixels in row i
+            # Ensure boolean mask for indexing (True = valid)
+            pos = np.asarray(m[i, :], dtype=bool)
             if pos.sum() > (
                 polyx + 8
             ):  # pos: per-row validity mask (True = valid pixel)
                 # 1-based indices for parity
-                x_idx = (np.nonzero(pos)[0] + 1).astype(
-                    np.float64
+                x_idx = (
+                    np.nonzero(pos)[0] + 1
                 )  # x_idx: 1-based indices of valid pixels in row
-                y_vals = arr[i, pos].astype(
-                    np.float64
-                )  # y_vals: observed values at valid pixels in row i
+                y_vals = arr[i, pos]  # y_vals: observed values at valid pixels in row i
 
                 mu = x_idx.mean()  # mu: centroid of x_idx for MATLAB-style centering
                 sd = (
@@ -453,7 +452,8 @@ def level_med_line(
 
     for i in range(arr.shape[0]):
         # MATLAB: pos = ~isnan(imgt(i,:,k))
-        pos = m[i, :]
+        # Ensure boolean mask for indexing (True = valid)
+        pos = np.asarray(m[i, :], dtype=bool)
         if pos.sum() > 10:
             # MATLAB uses median() (no omitnan needed because pos excludes invalids
             row_med = float(np.median(arr[i, pos]))
@@ -514,7 +514,8 @@ def level_med_line_y(
 
     out = arr.copy()
     for j in range(arr.shape[1]):
-        pos = m[:, j]
+        # Ensure boolean mask for indexing (True = valid)
+        pos = np.asarray(m[:, j], dtype=bool)
         if pos.sum() > 10:
             col_med = np.nanmedian(arr[pos, j])
             out[:, j] = arr[:, j] - col_med + bg
@@ -577,7 +578,8 @@ def level_smed_line(
     img_height, img_width = arr.shape
     y1 = np.empty(img_height, dtype=np.float64)
     for i in range(img_height):
-        pos = m[i, :]
+        # Ensure boolean mask for indexing (True = valid)
+        pos = np.asarray(m[i, :], dtype=bool)
         if pos.sum() > 10:
             y1[i] = np.nanmedian(arr[i, pos]) + bg
         else:
