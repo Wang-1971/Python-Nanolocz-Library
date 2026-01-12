@@ -14,6 +14,9 @@ NanoLocz MATLAB library:
     https://github.com/George-R-Heath/NanoLocz-Matlab-Library
     George Heath, University of Leeds
 
+
+MATLAB alignment
+----------------
 The Python implementation aims to be *algorithmically aligned* with the
 original MATLAB code. However, due to differences between MATLAB and Python
 numerical libraries (e.g. morphology operators, thresholding implementations,

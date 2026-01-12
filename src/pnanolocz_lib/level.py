@@ -1,5 +1,6 @@
 """
-Level and flatten AFM images using MATLAB-aligned background correction methods.
+Level and flatten AFM images and image stacks using MATLAB-aligned background
+correction methods.
 
 This module provides background leveling and flattening routines for Atomic
 Force Microscopy (AFM) images and image stacks. The implemented methods correct
@@ -7,7 +8,7 @@ for background planes, line-by-line drift, median offsets, and systematic
 row- or column-wise artefacts commonly observed in AFM topographic data.
 
 All public leveling functions accept an *exclusion mask* (same convention as
-``thresholder``): ``True`` = excluded, ``False`` = valid. Excluded pixels are
+``pnanolocz_lib.thresholder``): ``True`` = excluded, ``False`` = valid. Excluded pixels are
 omitted from fitting and summary statistics using MATLAB-style NaN-outside
 semantics (i.e., excluded pixels behave like NaN during fitting) but are
 preserved in the output array.
@@ -28,7 +29,8 @@ NanoLocz outputs (e.g., stage gating or fallback behaviour).
 
 Available leveling methods
 --------------------------
-Methods are selected via the ``method`` argument in :func:`apply_level`:
+There methods can be used directly and applied to 2D arrays or are selected via the ``method``
+argument in :func:`apply_level`:
 
 - ``plane``       : Subtract a polynomial plane via masked column/row means.
 - ``line``        : Subtract row-wise polynomial trends and optionally subtract
@@ -184,7 +186,7 @@ def level_plane(
     # --- Build MATLAB-style validity mask (True = valid pixel) ---
     m = _validity_mask(
         arr, mask, name="mask"
-    )  # boolean validity mask (True = valid pixel).
+    )  # m : boolean validity mask (True = valid pixel).
 
     # Global gate: must have >5 valid pixels overall (matches MATLAB intent)
     if m.sum() <= 5:
@@ -396,7 +398,7 @@ def level_line(
 def level_med_line(
     img: np.ndarray[Any, np.dtype[np.float64]],
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
-    polyx: int,
+    polyx: float,
     polyy: int,  # unused
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
@@ -415,9 +417,10 @@ def level_med_line(
         True = excluded pixel (ignored; treated as NaN),
         False = valid / included pixel.
         If None, all finite pixels are treated as valid.
-    polyx : int
-        Scale factor applied to the row median before subtraction. If `polyx > 0`,
-        the row median is multiplied by `polyx` (matches NanoLocz behaviour).
+     polyx : float
+        NanoLocz/MATLAB behaviour: `polyx` acts as a gain on the row-median
+        baseline *only if `polyx > 0`*. Otherwise, a gain of 1 is used.
+        (This is why MATLAB sometimes passes 0.6 here, i.e. in ``level_auto``.)
     polyy : int
         Unused (kept for API parity).
 
@@ -438,16 +441,25 @@ def level_med_line(
         arr, mask, name="mask"
     )  # boolean validity mask (True = valid pixel).
 
-    # Global background: median over masked image (NaN outside)
-    bg = np.nanmedian(np.where(m, arr, np.nan))
+    # MATLAB: bg = median(imgt .* r, 'all', 'omitnan')
+    # Here, `m` defines valid pixels; excluded pixels behave like NaN.
+    masked = np.where(m, arr, np.nan)
+    bg = float(np.nanmedian(masked))
 
     out = arr.copy()
+
+    # MATLAB behaviour:
+    #   if polyx > 0: subtract polyx * row_med
+    #   else:         subtract 1.0 * row_med
+    strength = float(polyx) if float(polyx) > 0 else 1.0
+
     for i in range(arr.shape[0]):
-        pos = m[i, :]  # use mask row, not isfinite(img)
+        # MATLAB: pos = ~isnan(imgt(i,:,k))
+        pos = m[i, :]
         if pos.sum() > 10:
-            row_med = np.nanmedian(arr[i, pos])
-            baseline = (polyx * row_med) if (polyx > 0) else row_med
-            out[i, :] = arr[i, :] - baseline + bg
+            # MATLAB uses median() (no omitnan needed because pos excludes invalids
+            row_med = float(np.median(arr[i, pos]))
+            out[i, :] = arr[i, :] - (strength * row_med) + bg
         else:
             out[i, :] = arr[i, :]  # unchanged if too few points
 
@@ -457,7 +469,7 @@ def level_med_line(
 def level_med_line_y(
     img: np.ndarray[Any, np.dtype[np.float64]],
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
-    polyx: int,
+    polyx: int,  # unused
     polyy: int,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
@@ -490,6 +502,8 @@ def level_med_line_y(
     -----
     - Columns with <= 10 valid pixels are left unchanged (matching the MATLAB guard).
     - The global background is computed as `median(where(valid, img, NaN))`.
+    - Unlike ``level_med_line`` this does not have a gain parameter taken form `polyy`,
+    this mirrors the MATLAB version.
     """
     arr = np.asarray(img, dtype=np.float64)
 
@@ -515,8 +529,8 @@ def level_med_line_y(
 def level_smed_line(
     img: np.ndarray[Any, np.dtype[np.float64]],
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
-    polyx: int,
-    polyy: int,
+    polyx: int,  # unused
+    polyy: int,  # unused
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
     Subtract a smoothed per-row median baseline using a moving median filter.
