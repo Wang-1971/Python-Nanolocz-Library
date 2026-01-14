@@ -441,7 +441,12 @@ def level_med_line(
     # MATLAB: bg = median(imgt .* r, 'all', 'omitnan')
     # Here, `m` defines valid pixels; excluded pixels behave like NaN.
     masked = np.where(m, arr, np.nan)
-    bg = float(np.nanmedian(masked))
+
+    # If there is at least one finite value, compute nanmedian; else, set NaN.
+    if np.isfinite(masked).any():
+        bg = float(np.nanmedian(masked))
+    else:
+        bg = float("nan")
 
     out = arr.copy()
 
