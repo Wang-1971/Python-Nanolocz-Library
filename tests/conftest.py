@@ -1,23 +1,22 @@
-"""Pytest-wide configuration and fixtures (warning filters) shared by all tests."""
+"""Test fixtures for pnanolocz_lib."""
 
-import warnings
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+RESOURCES = Path(__file__).parent / "resources"
 
 
-def pytest_configure(config) -> None:
-    """Configure pytest with custom warning filters for all tests."""
-    # NumPy: nanmedian over all-NaN slices during background/median computations
-    warnings.filterwarnings(
-        "ignore",
-        category=RuntimeWarning,
-        message="All-NaN slice encountered",
-        module=r"pnanolocz_lib\.level",
-    )
+@pytest.fixture
+def load_npz():
+    """Return a loader function so tests can do: data = load_npz('file.npz')."""
 
-    # scikit-image 0.26: deprecation for remove_small_holes(area_threshold=...)
-    # Broaden the module pattern to catch submodules like skimage.morphology.misc,
-    # and drop the message constraint to avoid regex mismatches.
-    warnings.filterwarnings(
-        "ignore",
-        category=FutureWarning,
-        module=r"skimage\.morphology(\..*)?$",
-    )
+    def _load(name: str) -> dict[str, np.ndarray]:
+        p = RESOURCES / name
+        with np.load(p, allow_pickle=False) as z:
+            return {k: z[k] for k in z.files}
+
+    return _load

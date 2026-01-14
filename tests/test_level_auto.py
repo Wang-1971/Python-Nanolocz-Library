@@ -456,3 +456,57 @@ def test_iterative_fit_holes_and_peaks_run_and_stay_finite():
     assert out_peaks.shape == stack.shape
     assert np.isfinite(out_holes).all()
     assert np.isfinite(out_peaks).all()
+
+
+# ---------------------------------
+# apply_level_auto: real data tests
+# ---------------------------------
+
+
+def test_plane_line_runs_on_real_spm_resource_and_improves_trend(load_npz):
+    """Test that plane-line routine runs on real AFM data and reduces trends."""
+    z = load_npz("afm_0p0_00003_raw.npz")
+    data = z["data"]
+    assert data.ndim in (2, 3)
+
+    # pick frame 5 if stack, else use image
+    img = data[5] if data.ndim == 3 and data.shape[0] > 5 else data
+
+    out = apply_level_auto(img, routine="plane-line")
+
+    assert out.shape == img.shape
+    assert np.isfinite(out).all()
+
+    # Trend reduction check: row/col mean range should drop noticeably
+    row_before = np.ptp(np.nanmean(img, axis=1))
+    col_before = np.ptp(np.nanmean(img, axis=0))
+    row_after = np.ptp(np.nanmean(out, axis=1))
+    col_after = np.ptp(np.nanmean(out, axis=0))
+
+    assert row_after <= row_before * 0.8
+    assert col_after <= col_before * 0.8
+
+
+def nrms(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute the normalized root-mean-square difference between two arrays."""
+    denom = np.linalg.norm(b.ravel())
+    if denom == 0:
+        return float(np.linalg.norm((a - b).ravel()))
+    return float(np.linalg.norm((a - b).ravel()) / denom)
+
+
+def test_plane_line_matches_reference_with_tolerance(load_npz):
+    """Test that plane-line routine matches reference data within tolerance."""
+    z_img = load_npz("afm_0p0_00003_raw.npz")  # raw input image
+    z_ref = load_npz(
+        "afm_0p0_00003_nanolocz_fitpeaks_.npz"
+    )  # reference image processed with Nanolocz using 'iterative fit peaks' routine
+
+    img = z_img.get("data")
+    ref = z_ref.get("data")
+
+    img = img.astype(float)
+    ref = ref.astype(float)
+
+    out = apply_level_auto(img, routine="iterative fit peaks")
+    assert nrms(out, ref) < 0.01  # within 1% NRMS difference
