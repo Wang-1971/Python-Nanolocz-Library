@@ -1,38 +1,72 @@
 """
-AFM image flattening and background leveling tools.
+Level AFM images and image stacks using MATLAB-aligned background correction methods.
 
 This module provides background leveling and flattening routines for Atomic
-Force Microscopy (AFM) images and video stacks. It supports a range of
-polynomial- and median-based leveling strategies, enabling the correction
-of background planes, row/column-wise drift, and systematic noise from AFM
-topographic data.
+Force Microscopy (AFM) images and image stacks. The implemented methods correct
+for background planes, line-by-line drift, median offsets, and systematic
+row- or column-wise artefacts commonly observed in AFM topographic data.
 
-The functions here were ported from the original MATLAB NanoLocz Library, and
-maintain compatibility with high-speed AFM, localization AFM, and static
-imaging data. (<https://github.com/George-R-Heath/NanoLocz-Matlab-Library/>)
+All public leveling functions accept an *exclusion mask* (same convention as
+``pnanolocz_lib.thresholder``): ``True`` = excluded, ``False`` = valid.
+Excluded pixels are omitted from fitting using MATLAB-style NaN-outside
+semantics (i.e., excluded pixels behave like NaN during fitting) but are
+preserved in the output array.
 
-Supported Leveling Methods
+The implementation is a Python port of the MATLAB NanoLocz Library:
+    https://github.com/George-R-Heath/NanoLocz-Matlab-Library
+Original MATLAB code by George Heath, University of Leeds.
+
+MATLAB alignment
+----------------
+This Python version aims for algorithmic and numerical alignment with the MATLAB
+reference implementation. Due to differences in underlying numerical libraries
+(NumPy/SciPy vs MATLAB), polynomial conditioning, floating-point behaviour, and
+edge-case handling, results may not be bit-for-bit identical. Where relevant,
+functions document any intentional deviations adopted to match the reference
+NanoLocz outputs (e.g., stage gating or fallback behaviour).
+
+Available leveling methods
 --------------------------
-- 'plane'       : Polynomial line + plane subtraction in X and Y.
-- 'line'        : Row-wise and column-wise polynomial leveling.
-- 'med_line'    : Row-wise median line flattening.
-- 'med_line_y'  : Column-wise median flattening.
-- 'smed_line'   : Smoothed median line subtraction.
-- 'mean_plane'  : Global mean subtraction.
-- 'log_y'       : Logarithmic curve subtraction along the Y-axis.
+There methods can be used directly and applied to 2D arrays or are selected via
+the ``method`` argument in :func:`apply_level`:
 
-Typical usage involves calling the `apply_level()` function with an image (2D)
-or image stack (3D) and specifying the desired method and polynomial orders.
+- ``plane``       : Subtract a polynomial plane via masked column/row means.
+- ``line``        : Subtract row-wise polynomial trends and optionally subtract
+                    column-wise polynomial trends (applied only when ``polyy > 0``
+                    for parity with the reference outputs used here).
+- ``med_line``    : Subtract a per-row median baseline and re-center to a global
+                    masked median.
+- ``med_line_y``  : Subtract a per-column median baseline and re-center to a
+                    global masked median.
+- ``smed_line``   : Subtract a smoothed per-row median baseline (moving median).
+- ``mean_plane``  : Subtract the masked mean value.
+- ``log_y``       : Subtract a fitted logarithmic trend along the Y-axis.
 
-The `get_background()` function generates the array of fitted lines without
-subtracting this from the image (i.e to visualise the background).
+Dispatcher and usage
+--------------------
+The primary entry point is the ``apply_level`` function, which dispatches to
+the appropriate leveling routine based on the requested method and applies
+it frame-by-frame if a 3D stack is provided. All methods accept an optional
+exclusion mask, where excluded pixels are excluded from fitting operations but
+preserved in the output.
+
+The companion function ``get_background`` computes the fitted background
+surface or lines *without subtracting them*, enabling visualisation or
+diagnostic inspection of the estimated background.
+
+Stacks
+------
+Functions operate on single images with shape ``(H, W)`` and stacks with shape
+``(N, H, W)``, processing stacks frame-by-frame. If a 2D mask is provided for a
+single image it is used directly; for stacks, masks must match the stack shape
+(or be promoted appropriately by the dispatcher).
 
 Examples
 --------
->>> from pnanolocz_lib.filters.level import level
->>> leveled = level(img, polyx=2, polyy=2, method="plane")
+>>> from pnanolocz_lib.level import level
+>>> leveled_stack = apply_level(stack, polyx=2, polyy=2, method="plane")
 
->>> from pnanolocz_lib.filters.level import level_plane
+>>> from pnanolocz_lib.level import level_plane
 >>> flattened = level_plane(img, mask=None, polyx=2, polyy=2)
 
 Authors
@@ -41,7 +75,7 @@ George Heath, University of Leeds (2025)
 Maya Tekchandani, University of Leeds (2025)
 Daniel. E. Rollins, University of Leeds (2025)
 
-This module is part of the pNanoLocz-Lib Python library for AFM analysis.
+This module is part of the ``pNanoLocz-Lib`` Python library for AFM analysis.
 """
 
 import warnings
@@ -56,6 +90,53 @@ SMOOTHING_WINDOW = 10
 LOG_FIT_BOUNDS = ([0.1, 0.01, 0.1], [1000, 20, 100])
 
 
+def _validity_mask(
+    arr: np.ndarray[Any, np.dtype[np.float64]],
+    mask_excl: np.ndarray[Any, np.dtype[np.bool_]] | None,
+    *,
+    name: str = "mask",
+) -> np.ndarray[Any, np.dtype[np.bool_]]:
+    """
+    Convert an exclusion mask into a finite-aware validity mask.
+
+    Parameters
+    ----------
+    arr : ndarray
+        2D image frame used to determine finite pixels.
+    mask_excl : ndarray of bool, optional
+        Exclusion mask with the same shape as `arr`.
+        True = excluded pixel, False = valid pixel.
+        If None, validity is determined only by finiteness of `arr`.
+    name : str, default "mask"
+        Name used in error messages when validating the mask shape.
+
+    Returns
+    -------
+    m_valid : ndarray of bool
+        Validity mask where True indicates a pixel is valid for fitting and
+        False indicates it is excluded or non-finite.
+
+    Notes
+    -----
+    - Non-finite pixels in `arr` are always marked invalid, regardless of mask.
+    - This function enforces the module-wide contract that public masks are
+      exclusion masks (True = excluded), while internal computations typically
+      operate on validity masks (True = valid).
+    """
+    finite = np.isfinite(arr)
+
+    if mask_excl is None:
+        return np.asarray(finite, dtype=np.float64)
+
+    m_excl = np.asarray(mask_excl, dtype=np.bool_)
+    if m_excl.shape != arr.shape:
+        raise ValueError(
+            f"{name} shape {m_excl.shape} must match img shape {arr.shape}"
+        )
+
+    return np.asarray((~m_excl) & finite, dtype=np.bool_)
+
+
 def level_plane(
     img: np.ndarray[Any, np.dtype[np.float64]],
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
@@ -63,106 +144,116 @@ def level_plane(
     polyy: int,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Plane leveling fitting by subtracting polynomial curves in X and Y.
+    Subtract a fitted polynomial plane using masked row and column means.
 
-    This attempts to replicate MATLAB's centered polynomial approach.
+    This implements NanoLocz-style plane leveling by fitting and subtracting a
+    polynomial along X (columns) using column-wise masked means, then fitting and
+    subtracting a polynomial along Y (rows) from the partially leveled image.
 
     Parameters
     ----------
     img : ndarray
         2D AFM image to be leveled.
-    mask : ndarray or None
-        Boolean mask of same shape as img (True = valid). If None,
-        all pixels are valid.
+    mask : ndarray of bool, optional
+        Exclusion mask with the same shape as `img`.
+        True = excluded pixel (ignored in fitting; treated as NaN),
+        False = valid / included pixel.
+        If None, all finite pixels are treated as valid.
     polyx : int
-        Polynomial order for X-direction leveling.
+        Polynomial degree for the X-direction (column-wise) fit.
     polyy : int
-        Polynomial order for Y-direction leveling.
+        Polynomial degree for the Y-direction (row-wise) fit.
 
     Returns
     -------
-    leveled_img : ndarray
-        The leveled image.
-    """
-    # If no mask provided, treat all pixels as valid
-    if mask is None:
-        mask = ~np.isnan(img)
-    # Must have at least 6 valid pixels to fit anything
-    if np.sum(mask) <= 5:
-        return np.asarray(img.copy())
+    leveled : ndarray
+        Leveled image with the same shape as `img`.
 
-    # ————— X DIRECTION —————
-    # Compute column-wise mean over valid pixels
-    masked_for_columns = np.where(mask, img, np.nan)
+    Notes
+    -----
+    - Excluded pixels are omitted from summary statistics using NaN-outside
+    semantics (`np.where(valid, value, np.nan)` + `nanmean`).
+    - Indices are treated as 1-based for parity with MATLAB's `polyfit`.
+    - Centering/scaling uses population standard deviation (ddof=0) to mimic
+    MATLAB's `polyfit(..., mu)` convention.
+    - If there are too few valid samples to support a fit, the input is returned
+    unchanged (or partially leveled if X succeeds but Y cannot be fit).
+    """
+    arr = np.asarray(img, dtype=np.float64)  # Convert input image to float64
+
+    # --- Build MATLAB-style validity mask (True = valid pixel) ---
+    m = _validity_mask(
+        arr, mask, name="mask"
+    )  # m : boolean validity mask (True = valid pixel).
+
+    # Global gate: must have >5 valid pixels overall (matches MATLAB intent)
+    if m.sum() <= 5:
+        return np.asarray(arr.copy(), dtype=np.float64)
+
+    # ========== X DIRECTION ==========
+    # Column-wise masked mean with NaN-outside semantics
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        column_means = np.nanmean(masked_for_columns, axis=0)
+        column_means = np.nanmean(np.where(m, arr, np.nan), axis=0)
 
     valid_columns = ~np.isnan(column_means)
-    column_indices = np.flatnonzero(valid_columns)
-    if column_indices.size <= polyx:
+    if valid_columns.sum() <= polyx:
         # Not enough points to fit X polynomial
-        return np.asarray(img.copy())
+        return np.asarray(arr.copy(), dtype=np.float64)
 
-    # Center & scale column indices
-    # replicate MATLAB centering
-    # mu = [mean(column_indices), std(column_indices)]
+    # 1-based indices (MATLAB uses 1..W)
+    column_indices = (np.nonzero(valid_columns)[0] + 1).astype(np.float64)
+
+    # Center and scale like MATLAB's polyfit mu (population std, ddof=0)
     col_centroid = column_indices.mean()
-    col_scale = column_indices.std(ddof=1)
+    col_scale = column_indices.std(ddof=0)
+    if col_scale == 0:  # very rare, but prevents divide-by-zero
+        return np.asarray(arr.copy(), dtype=np.float64)
+
     standardized_columns = (column_indices - col_centroid) / col_scale
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RankWarning)
-        # polyfit(..., polyx) with centering ⇒ same as MATLAB’s p, ~, mu
-        x_coeffs = np.polyfit(
-            standardized_columns,
-            column_means[valid_columns],
-            polyx,
-        )
+        x_coeffs = np.polyfit(standardized_columns, column_means[valid_columns], polyx)
 
-    # Evaluate polynomial at every column
-    all_cols = np.arange(img.shape[1])
+    # Evaluate polynomial at every column (1..W) using the same mu
+    all_cols = (np.arange(arr.shape[1]) + 1).astype(np.float64)
     standardized_all_cols = (all_cols - col_centroid) / col_scale
     x_plane = np.polyval(x_coeffs, standardized_all_cols)[None, :]
 
-    # Subtract X-plane
-    leveled_img = img - x_plane
+    leveled = arr - x_plane
 
-    # ————— Y DIRECTION —————
-    # Compute row-wise mean over valid pixels after X subtraction
-    masked_for_rows = np.where(mask, leveled_img, np.nan)
+    # ========== Y DIRECTION ==========
+    # Row-wise masked mean after X subtraction (NaN-outside semantics)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        row_means = np.nanmean(masked_for_rows, axis=1)
+        row_means = np.nanmean(np.where(m, leveled, np.nan), axis=1)
 
     valid_rows = ~np.isnan(row_means)
-    row_indices = np.flatnonzero(valid_rows)
-    if row_indices.size <= polyy:
-        # Not enough points to fit Y polynomial
-        return np.asarray(leveled_img)
+    if valid_rows.sum() <= polyy:
+        return np.asarray(leveled)
 
-    # Center & scale row indices
-    # replicate MATLAB centering
-    # mu = [mean(column_indices), std(column_indices)]
+    # 1-based indices (MATLAB uses 1..H)
+    row_indices = (np.nonzero(valid_rows)[0] + 1).astype(np.float64)
+
+    # Center and scale like MATLAB's polyfit mu
     row_centroid = row_indices.mean()
-    row_scale = row_indices.std(ddof=1)
+    row_scale = row_indices.std(ddof=0)
+    if row_scale == 0:
+        return np.asarray(leveled)
+
     standardized_rows = (row_indices - row_centroid) / row_scale
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RankWarning)
-        y_coeffs = np.polyfit(
-            standardized_rows,
-            row_means[valid_rows],
-            polyy,
-        )
+        y_coeffs = np.polyfit(standardized_rows, row_means[valid_rows], polyy)
 
-    # Evaluate polynomial at every row
-    all_rows = np.arange(img.shape[0])
+    # Evaluate polynomial at every row (1..H) with the same mu
+    all_rows = (np.arange(arr.shape[0]) + 1).astype(np.float64)
     standardized_all_rows = (all_rows - row_centroid) / row_scale
     y_plane = np.polyval(y_coeffs, standardized_all_rows)[:, None]
 
-    # Subtract Y-plane
-    return np.asarray(leveled_img - y_plane)
+    return np.asarray(leveled - y_plane)
 
 
 def level_line(
@@ -172,264 +263,412 @@ def level_line(
     polyy: int,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Polynomial line leveling, correcting each row and column separately.
+    Subtract line-wise polynomial trends along X and optionally along Y.
 
-    This uses centered/scaled index fitting.
+    This implements NanoLocz-style 'line' leveling in two stages:
+    (1) row-wise polynomial subtraction along X, followed by
+    (2) optional column-wise polynomial subtraction along Y.
 
     Parameters
     ----------
     img : ndarray
-        2D AFM image.
-    mask : ndarray or None
-        Boolean mask of same shape as img (True = valid).
+        2D AFM image to be leveled.
+    mask : ndarray of bool, optional
+        Exclusion mask with the same shape as `img`.
+        True = excluded pixel (ignored in fitting; treated as NaN),
+        False = valid / included pixel.
+        If None, all finite pixels are treated as valid.
     polyx : int
-        Polynomial order for per-row fitting.
+        Polynomial degree for the row-wise (X-direction) fit. Set <= 0 to skip.
     polyy : int
-        Polynomial order for per-column fitting.
+        Polynomial degree for the column-wise (Y-direction) fit. If `polyy > 0`,
+        a per-column polynomial is fit and subtracted.
 
     Returns
     -------
-    leveled_img : ndarray
-        The leveled image.
+    leveled : ndarray
+        Leveled image with the same shape as `img`.
+
+    Notes
+    -----
+    - Stage 1 (rows): each row is fit using only valid pixels. Rows with too few
+    valid pixels fall back to subtracting the median fitted curve computed over
+    successfully fit rows (mirrors the MATLAB fallback idea).
+    - Stage 2 (columns): this implementation applies the Y-stage only when
+    `polyy > 0`.
+    - Polynomial fitting uses 1-based indices and population std (ddof=0) for
+    MATLAB-like centering/scaling.
     """
-    if mask is None:
-        mask = ~np.isnan(img)
-    leveled_img = img.copy()
+    arr = np.asarray(img, dtype=np.float64)  # Convert input image to float64
 
-    # ————— Per-row polynomial leveling —————
+    # --- Build MATLAB-style validity mask (True = valid pixel) ---
+    m = _validity_mask(
+        arr, mask, name="mask"
+    )  # boolean validity mask (True = valid pixel).
+
+    out = arr.copy()
+
+    # ---------------- Row X-stage ----------------
     if polyx > 0:
-        row_fits = np.zeros_like(img)
-        fallback_rows: list[int] = []
+        row_fits = np.full_like(arr, np.nan)
+        fitted_rows, fallback_rows = [], []
 
-        for row_idx in range(img.shape[0]):
-            valid_cols = mask[row_idx, :]
-            if valid_cols.sum() > polyx + 8:
-                col_indices = np.flatnonzero(valid_cols)
-                row_values = img[row_idx, col_indices]
+        img_width = arr.shape[1]
+        for i in range(arr.shape[0]):
+            # Ensure boolean mask for indexing (True = valid)
+            pos = np.asarray(m[i, :], dtype=bool)
+            if pos.sum() > (
+                polyx + 8
+            ):  # pos: per-row validity mask (True = valid pixel)
+                # 1-based indices for parity
+                x_idx = (
+                    np.nonzero(pos)[0] + 1
+                )  # x_idx: 1-based indices of valid pixels in row
+                y_vals = arr[i, pos]  # y_vals: observed values at valid pixels in row i
 
-                # Center & scale col_indices
-                centroid_col = col_indices.mean()
-                scale_col = col_indices.std(ddof=1)
-                standardized_cols = (col_indices - centroid_col) / scale_col
+                mu = x_idx.mean()  # mu: centroid of x_idx for MATLAB-style centering
+                sd = (
+                    x_idx.std(ddof=0) or 1.0
+                )  # sd: population std for MATLAB-style scaling (guarded)
+                xs = (x_idx - mu) / sd  # xs: standardized x indices used for fitting
 
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", RankWarning)
-                    row_coeffs = np.polyfit(
-                        standardized_cols, row_values, polyx
-                    )  # noqa
+                    p_coeff = np.polyfit(xs, y_vals, polyx)
 
-                all_cols = np.arange(img.shape[1])
-                standardized_all_cols = (all_cols - centroid_col) / scale_col
-                fitted_row = np.polyval(row_coeffs, standardized_all_cols)
+                all_cols = (np.arange(img_width) + 1).astype(np.float64)
+                xs2 = (all_cols - mu) / sd
+                fit = np.polyval(p_coeff, xs2)
 
-                row_fits[row_idx, :] = fitted_row
-                leveled_img[row_idx, :] = img[row_idx, :] - fitted_row
+                row_fits[i, :] = fit
+                out[i, :] = arr[i, :] - fit
+                fitted_rows.append(i)
             else:
-                fallback_rows.append(row_idx)
+                fallback_rows.append(i)
 
-        # For rows without enough points, subtract the median
-        # of all fitted rows
-        median_row_fit = np.median(row_fits, axis=0)
-        for row_idx in fallback_rows:
-            leveled_img[row_idx, :] = img[row_idx, :] - median_row_fit
+        if fitted_rows and fallback_rows:
+            # median(y2) across fitted rows (ignore NaNs)
+            median_curve = np.nanmedian(row_fits[fitted_rows, :], axis=0)
+            for i in fallback_rows:
+                out[i, :] = arr[i, :] - median_curve
 
-    # ————— Per-column polynomial leveling —————
+    # ---------------- Column Y-stage ----------------
     if polyy > 0:
-        for col_idx in range(img.shape[1]):
-            valid_rows = mask[:, col_idx]
-            if valid_rows.sum() >= polyy:
-                row_indices = np.flatnonzero(valid_rows)
-                col_values = img[row_indices, col_idx]
+        img_height = arr.shape[0]
+        for j in range(arr.shape[1]):
+            yp = np.where(m[:, j], out[:, j], np.nan)
 
-                # Center & scale row_indices
-                centroid_row = row_indices.mean()
-                scale_row = row_indices.std(ddof=1)
-                standardized_rows = (row_indices - centroid_row) / scale_row
+            valid_rows = ~np.isnan(yp)
+            yl = (np.nonzero(valid_rows)[0] + 1).astype(
+                np.float64
+            )  # yl: 1-based indices of valid samples in column
 
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RankWarning)
-                    col_coeffs = np.polyfit(
-                        standardized_rows, col_values, polyy
-                    )  # noqa
+            if yl.size < (polyy + 1):
+                out[:, j] = arr[:, j]
+                continue
 
-                all_rows = np.arange(img.shape[0])
-                standardized_all_rows = (all_rows - centroid_row) / scale_row
-                fitted_col = np.polyval(col_coeffs, standardized_all_rows)
+            y_vals = yp[valid_rows].astype(
+                np.float64
+            )  # y_vals: observed values at valid rows for this column
 
-                leveled_img[:, col_idx] -= fitted_col
+            mu = yl.mean()  # mu: centroid of yl for MATLAB-style centering
+            sd = (
+                yl.std(ddof=0) or 1.0
+            )  # sd: population std for MATLAB-style scaling (guarded)
+            ys = (yl - mu) / sd  # ys: standardized y indices used for fitting
 
-    return np.asarray(leveled_img)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RankWarning)
+                p_coeff = np.polyfit(ys, y_vals, polyy)
+
+            all_rows = (np.arange(img_height) + 1).astype(np.float64)
+            ys2 = (all_rows - mu) / sd  # ys2: standardized 1..H using same mu/sd
+            fit = np.polyval(
+                p_coeff, ys2
+            )  # fit: fitted baseline across the full column
+
+            out[:, j] = out[:, j] - fit
+
+    return np.asarray(out)
 
 
 def level_med_line(
     img: np.ndarray[Any, np.dtype[np.float64]],
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
-    polyx: int,
-    polyy: int,  # unused (MATLAB semantics)
+    polyx: float,
+    polyy: int,  # unused
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Row-wise median line leveling for AFM images.
+    Subtract a per-row median baseline and re-center to a global masked median.
+
+    For each row with sufficient valid pixels, this subtracts the row median
+    (computed from valid pixels only) and adds back a global background level
+    given by the median of the masked image. This mirrors NanoLocz 'med_line'.
 
     Parameters
     ----------
     img : ndarray
-        2D AFM image.
-    mask : ndarray or None
-        Binary mask (1 = include pixel). If None, all non-NaN pixels are used.
-    polyx : int
-        Scaling factor for median subtraction.
-        If polyx == 0, scale factor is 1 (MATLAB behaviour).
+        2D AFM image to be leveled.
+    mask : ndarray of bool, optional
+        Exclusion mask with the same shape as `img`.
+        True = excluded pixel (ignored; treated as NaN),
+        False = valid / included pixel.
+        If None, all finite pixels are treated as valid.
+     polyx : float
+        NanoLocz/MATLAB behaviour: `polyx` acts as a gain on the row-median
+        baseline *only if `polyx > 0`*. Otherwise, a gain of 1 is used.
+        (This is why MATLAB sometimes passes 0.6 here, i.e. in ``level_auto``.)
     polyy : int
-        Unused. Kept for interface compatibility.
+        Unused (kept for API parity).
 
     Returns
     -------
     leveled : ndarray
-        The leveled image.
+        Leveled image with the same shape as `img`.
+
+    Notes
+    -----
+    - Rows with <= 10 valid pixels are left unchanged (matching the MATLAB guard).
+    - The global background is computed as `median(where(valid, img, NaN))`.
     """
-    if mask is None:
-        mask = ~np.isnan(img)
+    arr = np.asarray(img, dtype=np.float64)
 
-    # Masked image values
-    masked_img = np.where(mask > 0, img, np.nan)
+    # --- Build MATLAB-style validity mask (True = valid pixel) ---
+    m = _validity_mask(
+        arr, mask, name="mask"
+    )  # boolean validity mask (True = valid pixel).
 
-    # Global background (median of masked values)
-    bg = np.nanmedian(masked_img)
+    # MATLAB: bg = median(imgt .* r, 'all', 'omitnan')
+    # Here, `m` defines valid pixels; excluded pixels behave like NaN.
+    masked = np.where(m, arr, np.nan)
 
-    leveled = img.copy()
+    # If there is at least one finite value, compute nanmedian; else, set NaN.
+    if np.isfinite(masked).any():
+        bg = float(np.nanmedian(masked))
+    else:
+        bg = float("nan")
 
-    # Effective scale: polyx or 1 if polyx == 0
-    scale = polyx if polyx > 0 else 1
+    out = arr.copy()
 
-    for i in range(img.shape[0]):
-        row = masked_img[i, :]
-        pos = ~np.isnan(row)
+    # MATLAB behaviour:
+    #   if polyx > 0: subtract polyx * row_med
+    #   else:         subtract 1.0 * row_med
+    strength = float(polyx) if float(polyx) > 0 else 1.0
 
-        if np.sum(pos) > 1:
-            row_median = np.nanmedian(row)
-            leveled[i, :] = img[i, :] - scale * row_median + bg
+    for i in range(arr.shape[0]):
+        # MATLAB: pos = ~isnan(imgt(i,:,k))
+        # Ensure boolean mask for indexing (True = valid)
+        pos = np.asarray(m[i, :], dtype=bool)
+        if pos.sum() > 10:
+            # MATLAB uses median() (no omitnan needed because pos excludes invalids
+            row_med = float(np.median(arr[i, pos]))
+            out[i, :] = arr[i, :] - (strength * row_med) + bg
+        else:
+            out[i, :] = arr[i, :]  # unchanged if too few points
 
-    return np.asarray(leveled)
+    return np.asarray(out)
 
 
 def level_med_line_y(
     img: np.ndarray[Any, np.dtype[np.float64]],
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
-    polyx: int,
+    polyx: int,  # unused
     polyy: int,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Column-wise median line leveling.
+    Subtract a per-column median baseline and re-center to a global masked median.
+
+    For each column with sufficient valid pixels, this subtracts the column median
+    (computed from valid pixels only) and adds back a global background level
+    given by the median of the masked image. This mirrors NanoLocz 'med_line_y'.
 
     Parameters
     ----------
     img : ndarray
-        2D AFM image.
-    mask : ndarray or None
-        Binary mask or weighting matrix.
+        2D AFM image to be leveled.
+    mask : ndarray of bool, optional
+        Exclusion mask with the same shape as `img`.
+        True = excluded pixel (ignored; treated as NaN),
+        False = valid / included pixel.
+        If None, all finite pixels are treated as valid.
     polyx : int
-        Unused.
+        Unused (kept for API parity).
     polyy : int
-        Unused.
+        Unused (kept for API parity).
 
     Returns
     -------
     leveled : ndarray
-        The leveled image.
+        Leveled image with the same shape as `img`.
+
+    Notes
+    -----
+    - Columns with <= 10 valid pixels are left unchanged (matching the MATLAB guard).
+    - The global background is computed as `median(where(valid, img, NaN))`.
+    - Unlike ``level_med_line`` this does not have a gain parameter taken form `polyy`,
+    this mirrors the MATLAB version.
     """
-    if mask is None:
-        mask = ~np.isnan(img)
+    arr = np.asarray(img, dtype=np.float64)
 
-    leveled = img.copy()
-    bg = np.nanmedian(img[mask > 0])
+    # --- Build MATLAB-style validity mask (True = valid pixel) ---
+    m = _validity_mask(
+        arr, mask, name="mask"
+    )  # boolean validity mask (True = valid pixel).
 
-    for i in range(img.shape[1]):
-        pos = ~np.isnan(img[:, i])
-        if np.sum(pos) > 10:
-            y1 = np.median(img[pos, i])
-            leveled[:, i] = img[:, i] - y1 + bg
+    bg = np.nanmedian(np.where(m, arr, np.nan))
 
-    return np.asarray(leveled)
+    out = arr.copy()
+    for j in range(arr.shape[1]):
+        # Ensure boolean mask for indexing (True = valid)
+        pos = np.asarray(m[:, j], dtype=bool)
+        if pos.sum() > 10:
+            col_med = np.nanmedian(arr[pos, j])
+            out[:, j] = arr[:, j] - col_med + bg
+        else:
+            out[:, j] = arr[:, j]
+
+    return np.asarray(out)
 
 
 def level_smed_line(
     img: np.ndarray[Any, np.dtype[np.float64]],
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
-    polyx: int,
-    polyy: int,
+    polyx: int,  # unused
+    polyy: int,  # unused
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Smoothed median line subtraction.
+    Subtract a smoothed per-row median baseline using a moving median filter.
+
+    This mirrors NanoLocz 'smed_line' by computing a per-row baseline from the row
+    median (valid pixels only), smoothing that baseline with a moving median, and
+    subtracting the (baseline - smoothed_baseline) from the image.
 
     Parameters
     ----------
     img : ndarray
         2D AFM image.
-    mask : ndarray or None
-        Binary mask or weighting matrix.
+    mask : ndarray of bool, optional
+        Exclusion mask with the same shape as `img`.
+        True = excluded pixel (ignored; treated as NaN),
+        False = valid / included pixel.
+        If None, all finite pixels are treated as valid.
     polyx : int
-        Unused.
+        Unused (kept for API parity).
     polyy : int
-        Unused.
+        Unused (kept for API parity).
 
     Returns
     -------
     leveled : ndarray
-        The leveled image.
+        Leveled image with the same shape as `img`.
+
+    Notes
+    -----
+    - The global background is computed as `median(where(valid, img, NaN))`.
+    - Rows with <= 10 valid pixels use the global background as their median.
+    - The smoothing window length is `SMOOTHING_WINDOW` and is intended to match
+    MATLAB's `movmedian(..., 10)` behaviour as closely as practical.
     """
-    if mask is None:
-        mask = ~np.isnan(img)
+    arr = np.asarray(img, dtype=np.float64)
 
-    leveled = img.copy()
-    background = np.nanmedian(img[mask > 0])
-    y1 = np.zeros(img.shape[0])
+    # --- Build MATLAB-style validity mask (True = valid pixel) ---
+    m = _validity_mask(
+        arr, mask, name="mask"
+    )  # boolean validity mask (True = valid pixel).
 
-    for i in range(img.shape[0]):
-        pos = ~np.isnan(img[i, :])
-        if np.sum(pos) > 10:
-            y1[i] = np.median(img[i, pos]) + background
+    # Global background with NaN-outside
+    bg = np.nanmedian(np.where(m, arr, np.nan))
+
+    # Row medians (use mask row), then add bg
+    img_height, img_width = arr.shape
+    y1 = np.empty(img_height, dtype=np.float64)
+    for i in range(img_height):
+        # Ensure boolean mask for indexing (True = valid)
+        pos = np.asarray(m[i, :], dtype=bool)
+        if pos.sum() > 10:
+            y1[i] = np.nanmedian(arr[i, pos]) + bg
         else:
-            y1[i] = background
+            y1[i] = bg
 
-    background2 = np.convolve(
-        y1, np.ones(SMOOTHING_WINDOW) / SMOOTHING_WINDOW, mode="same"
-    )
+    # movmedian over rows (centered, shrink at edges)
+    def _movmedian(
+        x: np.ndarray[Any, np.dtype[np.float64]],
+        w: int,
+    ) -> np.ndarray[Any, np.dtype[np.float64]]:
+        n = x.size
+        out = np.empty(n, dtype=np.float64)
+        half = w // 2
+        for i in range(n):
+            start = max(0, i - half)
+            end = min(n, start + w)
+            out[i] = np.median(x[start:end])
+        return np.asarray(out, dtype=np.float64)
 
-    leveled = img - (y1[:, None] - background2[:, None])
+    bg2 = _movmedian(y1, SMOOTHING_WINDOW)
 
-    return np.asarray(leveled)
+    # Apply smoothed baseline: r = img - (y1 - bg2)
+    out = arr - (y1[:, None] - bg2[:, None])
+    return np.asarray(out)
 
 
 def level_mean_plane(
     img: np.ndarray[Any, np.dtype[np.float64]],
-    mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]],
-    polyx: int,
-    polyy: int,
+    mask: np.ndarray[Any, np.dtype[np.bool_]] | None,
+    polyx: int,  # unused
+    polyy: int,  # unused
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Mean plane subtraction.
+    Subtract the masked mean value from an image.
+
+    This computes the mean of valid pixels only (finite and not excluded) and
+    subtracts it from the full image, mirroring NanoLocz 'mean_plane'.
 
     Parameters
     ----------
     img : ndarray
         2D AFM image.
-    mask : ndarray or None
-        Binary mask or weighting matrix.
+    mask : ndarray of bool, optional
+        Exclusion mask with the same shape as `img`.
+        True = excluded pixel (ignored; treated as NaN),
+        False = valid / included pixel.
+        If None, all finite pixels are treated as valid.
     polyx : int
-        Unused.
+        Unused (kept for API parity).
     polyy : int
-        Unused.
+        Unused (kept for API parity).
 
     Returns
     -------
     leveled : ndarray
-        The leveled image.
-    """
-    if mask is None:
-        mask = ~np.isnan(img)
+        Mean-subtracted image with the same shape as `img`.
 
-    mean_val = np.nanmean(img[mask > 0])
-    return np.asarray(img - mean_val)
+    Notes
+    -----
+    - The mean is computed as `nanmean(where(valid, img, NaN))`.
+    - If no valid pixels exist, the input is returned unchanged.
+    """
+    arr = np.asarray(img, dtype=np.float64)
+    finite = np.isfinite(arr)
+
+    if mask is None:
+        m_valid = finite
+    else:
+        mask_excl = np.asarray(mask, dtype=bool)
+        if mask_excl.shape != arr.shape:
+            raise ValueError(
+                f"mask shape {mask_excl.shape} must match img shape {arr.shape}"
+            )
+
+        # exclusion -> validity
+        m_valid = (~mask_excl) & finite
+
+    if not np.any(m_valid):
+        return np.asarray(arr.copy(), dtype=np.float64)
+
+    masked = np.where(m_valid, arr, np.nan)
+    mean_val = np.nanmean(masked)
+
+    return np.asarray(arr - mean_val, dtype=np.float64)
 
 
 def level_log_y(
@@ -441,28 +680,37 @@ def level_log_y(
     orientation: str = "auto",  # "auto" | "normal" | "reverse"
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Logarithmic curve subtraction along the Y-axis.
+    Subtract a fitted logarithmic background trend along the Y-axis.
+
+    This estimates a 1D correction curve from the row-wise mean of the image and
+    subtracts it from each row. The correction is obtained by fitting a logarithmic
+    model on a restricted X-range (mirroring the NanoLocz approach).
 
     Parameters
     ----------
     img : ndarray
         2D AFM image.
-    mask : ndarray or None
-        Unused here; kept for interface consistency.
+    mask : ndarray of bool, optional
+        Unused. Present for API consistency with other leveling functions.
     polyx : int
         Unused.
     polyy : int
-        Scale factor for the X-axis used in log fitting.
+        Scale factor controlling the X-axis normalization used in the log fit.
     orientation : {"auto","normal","reverse"}, default "auto"
-        - "normal"  : subtract correction[:, None]
-        - "reverse" : subtract correction[::-1][:, None]  (legacy behaviour)
-        - "auto"    : try both and choose the one that reduces the
-                      row-mean dynamic range most.
+        Controls whether the correction is applied in normal or flipped order.
+        "auto" evaluates both and chooses the one that best flattens row means.
 
     Returns
     -------
     leveled : ndarray
-        The leveled image.
+        Corrected image with the same shape as `img`.
+
+    Notes
+    -----
+    - This function currently ignores `mask` (NanoLocz MATLAB code also does not
+    apply masking in the shown log-y snippet).
+    - The `"auto"` orientation mode is a Python convenience for robustness; MATLAB
+    typically applies a fixed orientation (often involving `flip`).
     """
     y = np.mean(img, axis=1)
     correction = _log_y_correction(y, polyy)
@@ -490,22 +738,24 @@ def level_log_y(
 
 
 def _log_y_correction(
-    y: np.ndarray[Any, np.dtype[Any]], scale: float
-) -> np.ndarray[Any, np.dtype[Any]]:
+    y: np.ndarray[Any, np.dtype[np.float64]],
+    scale: float,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Fit and return a logarithmic correction curve.
+    Fit a logarithmic correction curve to a 1D row-mean profile.
 
     Parameters
     ----------
     y : ndarray
-        1D array of mean pixel values along Y-axis.
+        1D signal (typically the row-wise mean of an image).
     scale : float
-        Scale factor for X-axis in log fitting.
+        Scale factor applied in the X-axis normalization used for fitting.
 
     Returns
     -------
     correction : ndarray
-        The log correction curve.
+        1D correction curve of the same length as `y`. If fitting fails, a
+        zero-array is returned.
     """
     y = y - np.min(y)
     x = np.linspace(0, 10, len(y)) / scale
@@ -543,29 +793,53 @@ def apply_level(
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]] = None,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Apply a function to level or flatten AFM images or stacks.
+    Apply a leveling method to an AFM image or stack.
 
-    This applies the various polynomial and median-based methods found in this module.
+    This is the public dispatcher for the leveling routines in this module. It
+    normalizes inputs to a frame-first representation ``(N, H, W)``, applies the
+    requested method frame-by-frame, and returns an array with the same shape as
+    the input.
 
     Parameters
     ----------
     img : ndarray
-        Input AFM image or image stack. Shape can be (H, W) or (N, H, W),
-        where N is the number of frames in a stack.
+        Input AFM image or image stack. Supported shapes are ``(H, W)`` for a
+        single frame or ``(N, H, W)`` for a stack, where ``N`` is the number of
+        frames.
     polyx : int
-        Polynomial order for X-direction leveling. Set to 0 to skip.
+        X-stage polynomial degree (interpretation depends on `method`).
+        Use ``0`` to disable polynomial fitting along X where applicable.
     polyy : int
-        Polynomial order for Y-direction leveling. Set to 0 to skip.
-    method : str
+        Y-stage polynomial degree (interpretation depends on `method`).
+        Use ``0`` to disable polynomial fitting along Y where applicable.
+    method : {"plane", "line", "med_line", "med_line_y", "smed_line", "mean_plane",
+        "log_y"}
         Leveling method to apply.
-    mask : ndarray, optional
-        Binary mask or weighting matrix with same shape as `img`.
-        If None, all pixels are considered valid.
+    mask : ndarray of bool, optional
+        Exclusion mask with the same shape as `img` (after any single-image
+        promotion to ``(1, H, W)``).
+        ``True`` marks excluded pixels and ``False`` marks valid pixels.
+        If None, validity is determined only by finiteness of `img`.
 
     Returns
     -------
     leveled : ndarray
-        The leveled image or image stack, same shape as input.
+        Leveled output with the same shape as `img`.
+
+    Raises
+    ------
+    ValueError
+        If `mask` is provided and its shape does not match the promoted `img`
+        shape (``(1, H, W)`` for a single image or ``(N, H, W)`` for a stack),
+        or if `method` is not recognized.
+
+    Notes
+    -----
+    - Mask semantics are **exclusion-based** (``True`` = excluded). Individual
+    methods convert this to an internal validity mask and use NaN-outside style
+    operations (e.g. ``where(valid, value, nan)``) during fitting.
+    - Method-specific MATLAB parity notes (e.g., stage gating such as `polyy > 0`
+    in ``"line"``) are documented in the corresponding function docstrings.
     """
     img = np.asarray(img)
     is_stack = img.ndim == 3
@@ -630,28 +904,51 @@ def get_background(
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]] = None,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Compute a background surface/lines that would be subtracted by `apply_level(...)`.
+    Compute the background estimated by a leveling method without modifying the input.
 
-    This does not apply the operation to the data.
+    This function returns the background surface/lines that would be subtracted by
+    :func:`apply_level` for the given `method`, computed frame-by-frame. The result
+    is defined as ``background = input - leveled`` using the same method-specific
+    logic and masking semantics.
 
     Parameters
     ----------
-    img : (N, H, W) array
-        Input AFM image or image stack. Shape can be (H, W) or (N, H, W),
-        where N is the number of frames in a stack.
+    img : ndarray
+        Input AFM image or image stack. Supported shapes are ``(H, W)`` for a
+        single frame or ``(N, H, W)`` for a stack.
     polyx : int
-        Polynomial order for X-direction leveling. Set to 0 to skip.
+        X-stage polynomial degree (interpretation depends on `method`).
     polyy : int
-        Polynomial order for Y-direction leveling. Set to 0 to skip.
-    method : str
-        One of 'plane', 'line', 'med_line', etc.
-    mask : (H, W) bool array, optional
-        Valid-pixel mask. If None, all pixels are valid.
+        Y-stage polynomial degree (interpretation depends on `method`).
+    method : {"plane", "line", "med_line", "med_line_y", "smed_line", "mean_plane",
+       "log_y"}
+        Leveling method whose estimated background should be returned.
+    mask : ndarray of bool, optional
+        Exclusion mask with the same shape as `img` (after any single-image
+        promotion to ``(1, H, W)``).
+        ``True`` marks excluded pixels and ``False`` marks valid pixels.
+        If None, validity is determined only by finiteness of `img`.
 
     Returns
     -------
-    background : (N, H, W) array
-        The fitted background surface or line-by-line fits.
+    background : ndarray
+        Estimated background with the same shape as `img`.
+
+    Raises
+    ------
+    ValueError
+        If `mask` is provided and its shape does not match the promoted `img`
+        shape (``(1, H, W)`` for a single image or ``(N, H, W)`` for a stack),
+        or if `method` is not recognized.
+
+    Notes
+    -----
+    - This function computes ``background`` as ``frame - leveled_frame`` using the
+    same implementation as :func:`apply_level`. As a consequence, any intentional
+    MATLAB-parity behaviours in the underlying method (e.g., skipping stages under
+    certain parameter values) are inherited here.
+    - Excluded pixels are preserved in the output arrays; masking primarily affects
+    which pixels contribute to fitted estimates.
     """
     img = np.asarray(img)
     is_stack = img.ndim == 3

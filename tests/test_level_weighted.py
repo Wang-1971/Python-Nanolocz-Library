@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from pnanolocz_lib.level_weighted import (
-    _center_scale_indices,
     _find_regions,
     _polyfit_centered,
     _polyval_centered,
@@ -15,22 +14,6 @@ from pnanolocz_lib.level_weighted import (
     level_weighted_plane,
     level_weighted_smed_line,
 )
-
-
-def test_center_scale_indices_basic():
-    """Test centering and scaling of a simple index array."""
-    arr = np.array([0, 1, 2, 3, 4], dtype=float)
-    std, c, s = _center_scale_indices(arr)
-    np.testing.assert_allclose(std.mean(), 0, atol=1e-12)
-    assert s > 0
-
-
-def test_center_scale_indices_empty():
-    """Test that empty index array returns defaults."""
-    std, c, s = _center_scale_indices(np.array([], dtype=float))
-    assert std.size == 0
-    assert c == 0
-    assert s == 1
 
 
 def test_polyfit_and_polyval_centered():

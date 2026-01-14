@@ -7,9 +7,28 @@ polynomial and median-based background estimation for Atomic Force Microscopy
 (AFM) images, enabling correction of multi-region drift, structured background,
 and non-uniform masking effects.
 
+All public leveling functions accept an *exclusion mask* (same convention as
+``pnanolocz_lib.thresholder``): ``True`` = excluded, ``False`` = valid. Excluded
+pixels are omitted from region formation and fitting using MATLAB-style NaN-outside
+semantics (i.e., excluded pixels behave like NaN during fitting) but are
+preserved in the output array.
+
+The implementation is a Python port of the MATLAB NanoLocz Library:
+    https://github.com/George-R-Heath/NanoLocz-Matlab-Library
+Original MATLAB code by George Heath, University of Leeds.
+
 The original Nanolocz-lib script was adapted from FindSteps.m and PolyfitLineMasked.m
 scripts from the SPIW project (<https://sourceforge.net/projects/spiw/>) and combined
 with NanoLocz leveling methods.
+
+MATLAB alignment
+----------------
+This Python version aims for algorithmic and numerical alignment with the MATLAB
+reference implementation. Due to differences in underlying numerical libraries
+(NumPy/SciPy vs MATLAB), polynomial conditioning, floating-point behaviour, and
+edge-case handling, results may not be bit-for-bit identical. Where relevant,
+functions document any intentional deviations adopted to match the reference
+NanoLocz outputs.
 
 Supported Leveling Methods
 --------------------------
@@ -19,12 +38,24 @@ Supported Leveling Methods
 - 'med_line_y'  : Region-weighted column-wise median line flattening.
 - 'smed_line'   : Region-weighted smoothed median line subtraction.
 
-Typical usage involves calling the :func:`apply_level_weighted` dispatcher with
-an AFM image (2D) or a stack (3D) and choosing one of the methods above.
+Dispatcher and usage
+--------------------
+The primary entry point is the ``apply_level_weighted`` function, which dispatches to
+the appropriate weighted leveling routine based on the requested method and applies
+it frame-by-frame if a 3D stack is provided. All methods accept an optional
+exclusion mask, where excluded pixels are excluded from fitting operations but
+preserved in the output.
+
+Stacks
+------
+Functions operate on single images with shape ``(H, W)`` and stacks with shape
+``(N, H, W)``, processing stacks frame-by-frame. If a 2D mask is provided for a
+single image it is used directly; for stacks, masks must match the stack shape
+(or be promoted appropriately by the dispatcher).
 
 Examples
 --------
->>> from pnanolocz_lib.filters.level_weighted import apply_level_weighted
+>>> from pnanolocz_lib.level_weighted import apply_level_weighted
 >>> leveled = apply_level_weighted(img, polyx=2, polyy=1, method='plane', mask=mask)
 
 Authors
@@ -47,71 +78,83 @@ from scipy import ndimage
 # ---------------------
 
 
-def _center_scale_indices(
-    indices: np.ndarray[Any, np.dtype[np.float64]],
-) -> tuple[np.ndarray[Any, np.dtype[np.float64]], float, float]:
-    """Center and scale a 1-D index array.
+def _validity_mask(
+    arr: np.ndarray[Any, np.dtype[np.float64]],
+    mask_excl: np.ndarray[Any, np.dtype[np.bool_]] | None,
+    *,
+    name: str = "mask",
+) -> np.ndarray[Any, np.dtype[np.bool_]]:
+    """
+    Convert an exclusion mask into a finite-aware validity mask.
 
     Parameters
     ----------
-    indices
-        1-D integer index positions (e.g. column or row indices).
+    arr : ndarray
+        2D image frame used to determine finite pixels.
+    mask_excl : ndarray of bool, optional
+        Exclusion mask with the same shape as `arr`.
+        True = excluded pixel, False = valid pixel.
+        If None, validity is determined only by finiteness of `arr`.
+    name : str, default "mask"
+        Name used in error messages when validating the mask shape.
 
     Returns
     -------
-    std_indices : np.ndarray
-        Centered and scaled indices (float).
-    centroid : float
-        Mean of the original indices.
-    scale : float
-        Sample standard deviation (ddof=1) of the original indices; guaranteed
-        non-zero (defaults to 1.0 when degenerate).
-    """
-    if indices.size == 0:
-        return indices.astype(float), 0.0, 1.0
+    m_valid : ndarray of bool
+        Validity mask where True indicates a pixel is valid for fitting and
+        False indicates it is excluded or non-finite.
 
-    centroid = float(indices.mean())
-    scale = float(indices.std(ddof=1)) if indices.size > 1 else 1.0
-    if scale == 0:
-        scale = 1.0
-    std_indices = (indices - centroid) / scale
-    return std_indices, centroid, scale
+    Notes
+    -----
+    - Non-finite pixels in `arr` are always marked invalid, regardless of mask.
+    - This function enforces the module-wide contract that public masks are
+      exclusion masks (True = excluded), while internal computations typically
+      operate on validity masks (True = valid).
+    """
+    finite = np.isfinite(arr)
+
+    if mask_excl is None:
+        return np.asarray(finite, dtype=np.bool_)
+
+    m_excl = np.asarray(mask_excl, dtype=np.bool_)
+    if m_excl.shape != arr.shape:
+        raise ValueError(
+            f"{name} shape {m_excl.shape} must match img shape {arr.shape}"
+        )
+
+    return np.asarray((~m_excl) & finite, dtype=np.bool_)
 
 
 def _polyfit_centered(
     x: np.ndarray[Any, np.dtype[np.float64]],
     y: np.ndarray[Any, np.dtype[np.float64]],
     order: int,
-) -> tuple[np.ndarray[Any, np.dtype[np.float64]], Tuple[float, float]]:
-    """Fit polynomial to ``y`` vs ``x`` after centering and scaling ``x``.
+) -> tuple[np.ndarray[Any, np.dtype[np.float64]], tuple[float, float]]:
+    """
+    Fit polynomial to y vs x after centering and scaling x.
 
-    This tries to replicate the MATLAB polyfit function.
-
-    Parameters
-    ----------
-    x : np.ndarray
-        1-D positions used as the independent variable.
-    y : np.ndarray
-        1-D values (dependent variable).
-    order : int
-        Polynomial order.
+    Equivalent to MATLAB polyfit with mu output.
 
     Returns
     -------
-    coeffs : np.ndarray
-        Coefficients in decreasing power order compatible with ``np.polyval``.
-    (centroid, scale) : tuple
-        The centering and scaling applied to ``x`` (so evaluation may use the
-        same parameters).
+      coeffs: polynomial coefficients (highest power first)
+      (centroid, scale): centering and scaling applied to x
     """
     if x.size == 0 or y.size == 0 or x.size <= order:
         return np.zeros(order + 1, dtype=float), (0.0, 1.0)
 
-    std_x, centroid, scale = _center_scale_indices(x)
+    centroid = float(np.nanmean(x))
+    scale = float(np.nanstd(x, ddof=1)) if x.size > 1 else 1.0
+    if scale == 0:
+        scale = 1.0
+
+    std_x = (x - centroid) / scale
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RankWarning)
         coeffs = np.polyfit(std_x, y, order)
-    return coeffs, (centroid, scale)
+
+    return np.asarray(coeffs, dtype=np.float64), (centroid, scale)
 
 
 def _polyval_centered(
@@ -137,33 +180,62 @@ def _polyval_centered(
     if scale == 0:
         scale = 1.0
     std_points = (points - centroid) / scale
-    return np.polyval(coeffs, std_points)
+    return np.asarray(np.polyval(coeffs, std_points), dtype=np.float64)
 
 
 def _find_regions(
     mask: np.ndarray[Any, np.dtype[np.bool_]], min_area: int
 ) -> List[np.ndarray[Any, np.dtype[np.int64]]]:
-    """Find connected foreground regions and return their flat indices.
+    """
+    Replicate MATLAB bwconncomp(mask,8) + MATLAB min_area filtering.
 
     Parameters
     ----------
-    mask : np.ndarray
-        Boolean mask where True indicates foreground.
+    mask : ndarray(bool)
+        True = foreground (same semantic as MATLAB `imgt ~= 0`).
     min_area : int
-        Minimum number of pixels for a region to be kept.
+        Compute min_area exactly as MATLAB does:
+        max(1, floor(0.01 * H * W)). This keeps Python and MATLAB aligned.
 
     Returns
     -------
-    regions : list of np.ndarray
-        Each element is a 1-D array of flat indices for that region.
+    regions : list of 1-D np.ndarray of dtype int
+        Each element is a flat index array (row-major / numpy.ravel order)
+        describing the pixels in that region. This matches the layout used
+        elsewhere in the python port (so `region_masked.flat[flat_idx] = ...`
+        behaves correctly).
     """
+    # 8-connectivity structure (exactly like MATLAB bwconncomp(mask,8))
     structure = np.ones((3, 3), dtype=int)
     labeled, num_features = ndimage.label(mask, structure=structure)
+
+    # compute MATLAB-style minimum area
+    h, w = mask.shape
+    if min_area is None:
+        min_area = max(1, int(np.floor(0.01 * (h * w))))
+
+    # areas: sum of True values for each label (labels 1..num_features)
+    # ndimage.sum returns results in label order
+    if num_features == 0:
+        return []
+
+    areas = ndimage.sum(mask, labeled, index=np.arange(1, num_features + 1))
+
+    # keep labels that satisfy MATLAB's >= min_area
+    keep_labels = [
+        lab
+        for lab, area in zip(range(1, num_features + 1), areas, strict=False)
+        if area >= min_area
+    ]
+
+    # produce flat indices for each kept label (row-major to match numpy.flat)
     regions: List[np.ndarray[Any, np.dtype[np.int64]]] = []
-    for lab in range(1, num_features + 1):
-        flat_idx = np.flatnonzero(labeled.ravel() == lab)
-        if flat_idx.size >= min_area:
-            regions.append(flat_idx)
+    for lab in keep_labels:
+        rows_idx, cols_idx = np.where(labeled == lab)
+        # build flat indices in numpy order (row-major)
+        flat_idx = np.ravel_multi_index((rows_idx, cols_idx), mask.shape, order="C")
+        regions.append(flat_idx.astype(np.int64))
+
     return regions
 
 
@@ -179,31 +251,50 @@ def level_weighted_plane(
     polyy: int,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Region-weighted polynomial plane subtraction along X and Y.
+    Subtract a region-weighted polynomial plane fitted along rows and columns.
 
-    The function computes per-region polynomial fits of the mean profile in the
-    X- and Y-directions and forms a weighted average of those per-region fits
-    (weights proportional to region pixel counts). The combined plane is
-    subtracted from ``img``.
+    This method reproduces the NanoLocz MATLAB ``level_weighted(...,'plane')``
+    behavior by fitting polynomials to per-region mean intensity profiles in
+    the X-direction (column means) and Y-direction (row means), then forming a
+    weighted average of the per-region polynomial models. Weights are
+    proportional to region pixel count and are zeroed for regions contributing
+    less than 2% of the total included area.
 
     Parameters
     ----------
-    img : np.ndarray
-        2-D AFM image.
-    regions : list of np.ndarray
-        List of flat index arrays describing foreground regions.
-    polyx, polyy : int
-        Polynomial orders for the X (columns) and Y (rows) directions.
+    img : ndarray
+        2D AFM image with shape ``(H, W)``. Values must be finite to contribute
+        to fitting; non-finite values are treated as excluded.
+    regions : list of ndarray
+        Foreground regions as flat indices (NumPy row-major / ``order='C'``).
+        Regions are typically computed from the validity mask (included pixels)
+        using 8-connectivity, mirroring MATLAB ``bwconncomp(mask, 8)``.
+    polyx : int
+        Polynomial order used for the X-direction fit (column profile).
+    polyy : int
+        Polynomial order used for the Y-direction fit (row profile).
 
     Returns
     -------
-    np.ndarray
-        The leveled image (float64).
+    leveled : ndarray
+        Leveled image with the same shape as ``img`` and dtype ``float64``.
+
+    Notes
+    -----
+    - Region weights are computed as ``w_i / sum(w)`` and then thresholded with
+      ``W_i = 0`` for ``W_i <= 0.02`` (MATLAB behavior). Weights are not
+      renormalized after thresholding.
+    - Polynomial fits use centering/scaling (MATLAB ``polyfit`` ``mu`` output)
+      so that evaluation can reproduce MATLAB-style numerical conditioning.
     """
     rows, cols = img.shape
     img_f = np.asarray(img, dtype=float)
 
     n_regions = len(regions)
+
+    if n_regions == 0:
+        return np.asarray(img_f.copy(), dtype=np.float64)
+
     region_pixel_counts = np.zeros(n_regions, dtype=float)
 
     x_poly_list: List[np.ndarray[Any, np.dtype[np.float64]]] = []
@@ -218,7 +309,8 @@ def level_weighted_plane(
         # Nanolocz- build regionMatrix (here region_masked)
         region_masked = np.full(img_f.shape, np.nan, dtype=float)
         region_masked.flat[region_indices] = img_f.flat[region_indices]
-        region_pixel_counts[i] = region_indices.size  # w(i) in Nanolocz
+        # w(i) in MATLAB Nanolocz George says w is weighting
+        region_pixel_counts[i] = region_indices.size
 
         # X-direction: mean of each column within region
         with warnings.catch_warnings():
@@ -270,11 +362,6 @@ def level_weighted_plane(
     # Exclude regions with less that 2% area
     weights = np.where(weights > 0.02, weights, 0.0)
 
-    if weights.sum() == 0:
-        weights = region_pixel_counts / (
-            region_pixel_counts.sum() if region_pixel_counts.sum() > 0 else 1.0
-        )
-
     # Pad coefficient arrays to the same length then take weighted sum
     max_len_x = max((p.size for p in x_poly_list), default=0)
     max_len_y = max((p.size for p in y_poly_list), default=0)
@@ -287,7 +374,7 @@ def level_weighted_plane(
         axis=1,
     )
 
-    weighted_x_coeffs = (x_poly_arr * weights[None, :]).sum(axis=1)
+    weighted_x_coeffs = (x_poly_arr * weights[None, :]).sum(axis=1)  # x_poly_arr is W
     weighted_y_coeffs = (y_poly_arr * weights[None, :]).sum(axis=1)
     weighted_x_centroid = (np.array(x_centroid_list) * weights).sum()
     weighted_x_scale = (np.array(x_scale_list) * weights).sum()
@@ -314,463 +401,386 @@ def level_weighted_line(
     polyy: int,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Region-weighted per-row and per-column polynomial leveling.
+    Subtract a region-weighted polynomial line background along rows and columns.
 
-    This function removes large-scale background trends from an image by fitting
-    per-row and/or per-column polynomials to user-provided regions, then
-    subtracting the region-weighted background from the image.
-
-    For each region, a polynomial is fit independently to each row (if
-    ``polyx > 0``) and/or each column (if ``polyy > 0``) using only pixels
-    inside that region. The polynomial coefficients and the centering parameters
-    (mean and scale) for each row/column are aggregated across regions using
-    weights proportional to the per-row/column counts of valid pixels in each
-    region. Extremely small weights (< 0.02) are nulled to reduce noise; rows or
-    columns whose weights zero out are reweighted by raw pixel counts. The
-    resulting weighted polynomial background is evaluated and subtracted from
-    the image (rows first, then columns if both are enabled).
+    This method reproduces the NanoLocz MATLAB ``level_weighted(...,'line')``
+    behavior by fitting polynomials within each region separately for each row
+    (X-direction) and/or each column (Y-direction), then combining per-region
+    fits using per-row (or per-column) weights proportional to the number of
+    region pixels present in that row/column. Regions contributing less than
+    2% of the row/column support are excluded from the weighted sum.
 
     Parameters
     ----------
-    img : ndarray of float64, shape (H, W)
-        Input image to level.
-    regions : list of 1D ndarray of int64
-        A list of flat (ravelled) indices specifying disjoint or overlapping
-        regions within ``img``. Each array contains indices into
-        ``np.ravel(img)`` (i.e., C-order flattening). Only pixels belonging to a
-        given region are used to fit that region's per-row/column polynomials.
+    img : ndarray
+        2D AFM image with shape ``(H, W)``.
+    regions : list of ndarray
+        Foreground regions as flat indices (NumPy row-major / ``order='C'``).
     polyx : int
-        Polynomial degree for row-wise fitting. If ``polyx <= 0``, no row-wise
-        leveling is performed.
+        Polynomial order for row-wise fits (X-direction). If ``polyx <= 0``,
+        no row-wise correction is applied.
     polyy : int
-        Polynomial degree for column-wise fitting. If ``polyy <= 0``, no
-        column-wise leveling is performed.
+        Polynomial order for column-wise fits (Y-direction). If ``polyy <= 0``,
+        no column-wise correction is applied.
 
     Returns
     -------
-    ndarray of float64, shape (H, W)
-        The leveled image. If both ``polyx > 0`` and ``polyy > 0``, the result is
-        the input with the row-wise background subtracted first, followed by the
-        column-wise background subtraction.
+    leveled : ndarray
+        Leveled image with the same shape as ``img`` and dtype ``float64``.
 
     Notes
     -----
-    - For each row/column and region, polynomial fitting is performed on the
-      coordinate positions that have valid pixels within the region. A fit
-      requires at least ``degree + 2`` valid points; otherwise, a neutral
-      centering ``(0.0, 1.0)`` is recorded and coefficients are left at zero
-      for that row/column in that region.
-    - Region aggregation uses normalized pixel-count weights per row/column.
-      Weights below 0.02 are set to 0 to suppress weak regions; if all weights
-      become zero for a given row/column, raw pixel-count normalization is used
-      as a fallback.
-    - Polynomial evaluation is done with centered/scaled coordinates obtained
-      from each fit (mean, scale) aggregated across regions using the same
-      weights as for the coefficients.
-    - This function relies on helper routines
-      ``_polyfit_centered(x, y, degree) -> (coeffs, (mean, scale))`` and
-      ``_polyval_centered(coeffs, (mean, scale), x) -> y``.
-
-    Examples
-    --------
-    >>> H, W = 128, 256
-    >>> img = np.random.randn(H, W).astype(float)
-    >>> # Define two rectangular regions via flat indices
-    >>> r1 = np.ravel_multi_index(
-    ...     np.mgrid[10:60, 20:120].reshape(2, -1), dims=img.shape, order='C'
-    ... )
-    >>> r2 = np.ravel_multi_index(
-    ...     np.mgrid[70:120, 100:220].reshape(2, -1), dims=img.shape, order='C'
-    ... )
-    >>> leveled = level_weighted_line(img, [r1, r2], polyx=2, polyy=1)
+    - Fitting uses 1-based coordinates for evaluation grids (``1..W`` and
+      ``1..H``) to match MATLAB indexing conventions used in the reference
+      implementation.
+    - After computing weighted coefficients per row/column, the constant term
+      is set to zero (MATLAB behavior: ``px_w(:,end)=0`` / ``py_w(:,end)=0``).
+    - Rows/columns whose synthesized background contains NaNs are set to 0
+      before subtraction (MATLAB update noted: "set line fit NaNs = 0").
     """
-    rows, cols = img.shape
     img_f = np.asarray(img, dtype=float)
+    rows, cols = img_f.shape
+    n_regions = len(regions)
+    r = img_f.copy()
 
-    leveled_image = img_f.copy()
+    # ----- X direction (rows) -----
+    if polyx > 0:
+        w_rows = np.zeros((rows, n_regions), dtype=float)
+        px_coeffs = np.zeros((rows, polyx + 1, n_regions), dtype=float)
+        mux_centroid = np.zeros((rows, n_regions), dtype=float)
+        mux_scale = np.ones((rows, n_regions), dtype=float)
 
-    # Row-wise polynomial fitting per region
-    if polyx > 0 and len(regions) > 0:
-        # MATLAB: px{k}(ii, i)  -> per-row polynomial coefficients per region
-        # Python: we store a (rows, polyx+1) array per region, then stack to (rows,
-        # polyx+1, n_regions)
-        row_coeffs_regions: List[np.ndarray[Any, np.dtype[np.float64]]] = []
-        # MATLAB Nanolocz-lib: mux{1}(ii, i) and mux{2}(ii, i) -> centering (mean,
-        # scale) per row and region
-        # Python: store as (rows, 2) per region, then combine with weights
-        row_centering_regions: List[np.ndarray[Any, np.dtype[np.float64]]] = []
-        # MATLAB: w(ii, i) -> per-row valid-pixel counts per region
-        # (row_pixel_counts_regions)
-        # Python: store as (rows,) per region; later stack to (rows, n_regions)
-        row_pixel_counts_regions: List[np.ndarray[Any, np.dtype[np.float64]]] = []
-
-        for region_indices in regions:
-            region_masked = np.full(img_f.shape, np.nan, dtype=float)
-            region_masked.flat[region_indices] = img_f.flat[region_indices]
-
-            coeffs_for_rows = np.zeros(
-                (rows, polyx + 1), dtype=float
-            )  # coeffs_for_rows ~ MATLAB Nanolocz-lib px{k} matrices collected by k
-            centering_for_rows = np.zeros((rows, 2), dtype=float)  #
-            pixel_counts_per_row = np.zeros(rows, dtype=float)
-
-            for row_idx in range(rows):
-                valid_columns = ~np.isnan(region_masked[row_idx, :])
-                pixel_counts_per_row[row_idx] = valid_columns.sum()
-
-                if valid_columns.sum() > polyx + 1:
-                    col_positions = np.flatnonzero(valid_columns).astype(float)
-                    values = img_f[row_idx, valid_columns]
-                    coeffs, centering = _polyfit_centered(col_positions, values, polyx)
-                    coeffs_for_rows[row_idx, : coeffs.size] = coeffs
-                    centering_for_rows[row_idx, :] = centering
+        for i, region_idx in enumerate(regions):
+            region_masked = np.full((rows, cols), np.nan)
+            region_masked.flat[region_idx] = img_f.flat[region_idx]
+            for rr in range(rows):
+                pos = ~np.isnan(region_masked[rr, :])
+                w_rows[rr, i] = pos.sum()
+                if pos.sum() > polyx + 1:
+                    # >>> 1-based indices <<<
+                    xl = (np.flatnonzero(pos) + 1).astype(float)
+                    xf = img_f[rr, pos].astype(float)
+                    coeffs, (cent, sc) = _polyfit_centered(xl, xf, polyx)
+                    px_coeffs[rr, :, i] = coeffs
+                    mux_centroid[rr, i] = cent
+                    mux_scale[rr, i] = sc if sc != 0 else 1.0
                 else:
-                    centering_for_rows[row_idx, :] = (0.0, 1.0)
+                    px_coeffs[rr, :, i] = 0.0
+                    mux_centroid[rr, i] = 0.0
+                    mux_scale[rr, i] = 1.0
 
-            row_coeffs_regions.append(coeffs_for_rows)
-            row_centering_regions.append(centering_for_rows)
-            row_pixel_counts_regions.append(pixel_counts_per_row)
+        denom = w_rows.sum(axis=1, keepdims=True)
+        denom = np.where(denom == 0, 1.0, denom)
+        W = np.divide(w_rows, denom, out=np.zeros_like(w_rows), where=denom != 0)
+        W = W * (W > 0.02)  # threshold like MATLAB; do not renormalize
 
-        row_coeffs_stack = np.stack(
-            row_coeffs_regions, axis=2
-        )  # (rows, poly+1, n_regions)
-        row_pixel_counts_array = np.stack(
-            row_pixel_counts_regions, axis=1
-        )  # (rows, n_regions)
+        px_w = (px_coeffs * W[:, None, :]).sum(axis=2)
+        px_w[:, -1] = 0.0  # zero constant term
+        mu_w_centroid = (mux_centroid * W).sum(axis=1)
+        mu_w_scale = (mux_scale * W).sum(axis=1)
 
-        total_counts_per_row = row_pixel_counts_array.sum(axis=1, keepdims=True)
-        row_weights = row_pixel_counts_array / np.where(
-            total_counts_per_row == 0, 1.0, total_counts_per_row
-        )
-        row_weights = np.where(row_weights > 0.02, row_weights, 0.0)
-
-        zero_weight_rows = row_weights.sum(axis=1) == 0
-        if zero_weight_rows.any():
-            row_weights[zero_weight_rows, :] = row_pixel_counts_array[
-                zero_weight_rows, :
-            ] / np.maximum(total_counts_per_row[zero_weight_rows], 1.0)
-
-        row_weights_expanded = row_weights[:, None, :]
-        weighted_row_coeffs = (row_coeffs_stack * row_weights_expanded).sum(axis=2)
-
-        row_cent0 = np.stack([c[:, 0] for c in row_centering_regions], axis=1)
-        row_cent1 = np.stack([c[:, 1] for c in row_centering_regions], axis=1)
-        weighted_row_centroid = (row_cent0 * row_weights).sum(axis=1)
-        weighted_row_scale = (row_cent1 * row_weights).sum(axis=1)
-
-        # Evaluate row background and subtract
-        row_background = np.zeros_like(img_f)
-        col_positions_all = np.arange(cols)
-        for r_idx in range(rows):
-            row_background[r_idx, :] = _polyval_centered(
-                weighted_row_coeffs[r_idx],
-                (
-                    weighted_row_centroid[r_idx],
-                    (
-                        weighted_row_scale[r_idx]
-                        if weighted_row_scale[r_idx] != 0
-                        else 1.0
-                    ),
-                ),
-                col_positions_all,
+        xgrid_1b = np.arange(1, cols + 1, dtype=float)
+        lines_x = np.zeros_like(img_f, dtype=float)
+        for rr in range(rows):
+            mu_row = (
+                float(mu_w_centroid[rr]),
+                float(mu_w_scale[rr]) if mu_w_scale[rr] != 0 else 1.0,
             )
+            lines_x[rr, :] = _polyval_centered(px_w[rr, :], mu_row, xgrid_1b)
+        r = r - lines_x
 
-        leveled_image = img_f - row_background
+    # ----- Y direction (cols) -----
+    if polyy > 0:
+        w_cols = np.zeros((cols, n_regions), dtype=float)
+        py_coeffs = np.zeros((cols, polyy + 1, n_regions), dtype=float)
+        muy_centroid = np.zeros((cols, n_regions), dtype=float)
+        muy_scale = np.ones((cols, n_regions), dtype=float)
 
-    # Column-wise polynomial fitting per region
-    if polyy > 0 and len(regions) > 0:
-        # IN MATLAB Nanolocz-lib col_coeffs_regions is py
-        col_coeffs_regions: List[np.ndarray[Any, np.dtype[np.float64]]] = []
-        # IN MATLAB Nanolocz-lib col_centering_regions is muy
-        col_centering_regions: List[np.ndarray[Any, np.dtype[np.float64]]] = []
-        # IN MATLAB Nanolocz-lib col_pixel_counts_regions is w
-        col_pixel_counts_regions: List[np.ndarray[Any, np.dtype[np.float64]]] = []
-
-        for region_indices in regions:
-            region_masked = np.full(img_f.shape, np.nan, dtype=float)
-            region_masked.flat[region_indices] = img_f.flat[region_indices]
-
-            coeffs_for_cols = np.zeros((cols, polyy + 1), dtype=float)
-            centering_for_cols = np.zeros((cols, 2), dtype=float)
-            pixel_counts_per_col = np.zeros(cols, dtype=float)
-
-            for col_idx in range(cols):
-                valid_rows = ~np.isnan(region_masked[:, col_idx])
-                pixel_counts_per_col[col_idx] = valid_rows.sum()
-
-                if valid_rows.sum() > polyy + 1:
-                    row_positions = np.flatnonzero(valid_rows).astype(float)
-                    values = img_f[valid_rows, col_idx]
-                    coeffs, centering = _polyfit_centered(row_positions, values, polyy)
-                    coeffs_for_cols[col_idx, : coeffs.size] = coeffs
-                    centering_for_cols[col_idx, :] = centering
+        for i, region_idx in enumerate(regions):
+            region_masked = np.full((rows, cols), np.nan)
+            region_masked.flat[region_idx] = img_f.flat[region_idx]
+            for cc in range(cols):
+                pos = ~np.isnan(region_masked[:, cc])
+                w_cols[cc, i] = pos.sum()
+                if pos.sum() > polyy + 1:
+                    # >>> 1-based indices <<<
+                    yl = (np.flatnonzero(pos) + 1).astype(float)
+                    yf = img_f[pos, cc].astype(float)
+                    coeffs, (cent, sc) = _polyfit_centered(yl, yf, polyy)
+                    py_coeffs[cc, :, i] = coeffs
+                    muy_centroid[cc, i] = cent
+                    muy_scale[cc, i] = sc if sc != 0 else 1.0
                 else:
-                    centering_for_cols[col_idx, :] = (0.0, 1.0)
+                    py_coeffs[cc, :, i] = 0.0
+                    muy_centroid[cc, i] = 0.0
+                    muy_scale[cc, i] = 1.0
 
-            col_coeffs_regions.append(coeffs_for_cols)
-            col_centering_regions.append(centering_for_cols)
-            col_pixel_counts_regions.append(pixel_counts_per_col)
+        denom = w_cols.sum(axis=1, keepdims=True)
+        denom = np.where(denom == 0, 1.0, denom)
+        W = np.divide(w_cols, denom, out=np.zeros_like(w_cols), where=denom != 0)
+        W = W * (W > 0.02)
 
-        col_coeffs_stack = np.stack(
-            col_coeffs_regions, axis=2
-        )  # (cols, poly+1, n_regions)
-        col_pixel_counts_array = np.stack(
-            col_pixel_counts_regions, axis=1
-        )  # (cols, n_regions)
+        py_w = (py_coeffs * W[:, None, :]).sum(axis=2)
+        py_w[:, -1] = 0.0
+        mu_w_centroid = (muy_centroid * W).sum(axis=1)
+        mu_w_scale = (muy_scale * W).sum(axis=1)
 
-        total_counts_per_col = col_pixel_counts_array.sum(axis=1, keepdims=True)
-        col_weights = col_pixel_counts_array / np.where(
-            total_counts_per_col == 0, 1.0, total_counts_per_col
-        )
-        col_weights = np.where(col_weights > 0.02, col_weights, 0.0)
-
-        zero_weight_cols = col_weights.sum(axis=1) == 0
-        if zero_weight_cols.any():
-            col_weights[zero_weight_cols, :] = col_pixel_counts_array[
-                zero_weight_cols, :
-            ] / np.maximum(total_counts_per_col[zero_weight_cols], 1.0)
-
-        col_weights_expanded = col_weights[:, None, :]
-        weighted_col_coeffs = (col_coeffs_stack * col_weights_expanded).sum(axis=2)
-
-        # After computing weighted_row_coeffs and weighted_col_coeffs
-        # Force constant term to zero like MATLAB Nanolocz:
-        weighted_row_coeffs[:, -1] = 0.0
-        weighted_col_coeffs[:, -1] = 0.0
-
-        col_cent0 = np.stack([c[:, 0] for c in col_centering_regions], axis=1)
-        col_cent1 = np.stack([c[:, 1] for c in col_centering_regions], axis=1)
-        weighted_col_centroid = (col_cent0 * col_weights).sum(axis=1)
-        weighted_col_scale = (col_cent1 * col_weights).sum(axis=1)
-
-        # Evaluate column background and subtract
-        col_background = np.zeros_like(img_f)
-        row_positions_all = np.arange(rows)
-        for c_idx in range(cols):
-            col_background[:, c_idx] = _polyval_centered(
-                weighted_col_coeffs[c_idx],
-                (
-                    weighted_col_centroid[c_idx],
-                    (
-                        weighted_col_scale[c_idx]
-                        if weighted_col_scale[c_idx] != 0
-                        else 1.0
-                    ),
-                ),
-                row_positions_all,
+        ygrid_1b = np.arange(1, rows + 1, dtype=float)
+        lines_y = np.zeros_like(img_f, dtype=float)
+        for cc in range(cols):
+            mu_col = (
+                float(mu_w_centroid[cc]),
+                float(mu_w_scale[cc]) if mu_w_scale[cc] != 0 else 1.0,
             )
+            lines_y[:, cc] = _polyval_centered(py_w[cc, :], mu_col, ygrid_1b)
+        r = r - lines_y
 
-        leveled_image = leveled_image - col_background
-
-    return np.asarray(leveled_image)
+    return np.asarray(r, dtype=np.float64)
 
 
 def level_weighted_med_line(
-    image: np.ndarray[Any, np.dtype[np.float64]],
+    img: np.ndarray[Any, np.dtype[np.float64]],
     regions: List[np.ndarray[Any, np.dtype[np.int64]]],
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
-    """Region-weighted median line subtraction along image rows.
+    """
+    Subtract a region-weighted row-wise median baseline.
 
-    Computes a region-weighted median background per row and subtracts it
-    from the image. Behaviour mirrors the MATLAB ``med_line`` case but uses
-    descriptive variable names and NumPy-style docstrings.
+    This method mirrors the NanoLocz MATLAB ``level_weighted(...,'med_line')``
+    behavior. For each region a region-wide background level is computed
+    (median over region pixels). For each row and region, a row median is
+    computed over the region pixels in that row; the region background is then
+    removed to form a per-region row offset. Offsets are combined across
+    regions using per-row weights proportional to the number of region pixels
+    contributing in that row.
 
     Parameters
     ----------
-    image : np.ndarray
-        2-D AFM image (rows * columns).
-    regions : list of np.ndarray
-        List of flat-index arrays describing connected foreground regions.
+    img : ndarray
+        2D AFM image with shape ``(H, W)``.
+    regions : list of ndarray
+        Foreground regions as flat indices (NumPy row-major / ``order='C'``).
 
     Returns
     -------
-    np.ndarray
-        Row-leveled image (float64).
+    leveled : ndarray
+        Leveled image with the same shape as ``img`` and dtype ``float64``.
+
+    Notes
+    -----
+    - For a given row and region, if fewer than 3 region pixels are present,
+      the per-region row offset falls back to ``-bg_region`` (MATLAB behavior).
+    - Rows with no coverage from any region are left unchanged.
     """
-    image_float = np.asarray(image, dtype=float)
-    n_rows, n_cols = image_float.shape
+    img_f = np.asarray(img, dtype=np.float64)
+    rows, cols = img_f.shape
     n_regions = len(regions)
+    if n_regions == 0:
+        return np.asarray(img_f.copy(), dtype=np.float64)
 
-    # Per-row counts and per-row median offsets for each region
-    per_row_counts = np.zeros((n_rows, n_regions), dtype=float)
-    per_row_offsets = np.zeros((n_rows, n_regions), dtype=float)
-    region_baselines = np.zeros(n_regions, dtype=float)
+    # Initialize arrays
+    w = np.zeros((rows, n_regions), dtype=float)
+    y1 = np.zeros((rows, n_regions), dtype=float)
+    bg = np.zeros(n_regions, dtype=float)
 
-    for r_idx, region_indices in enumerate(regions):
-        region_masked = np.full(image_float.shape, np.nan, dtype=float)
-        region_masked.flat[region_indices] = image_float.flat[region_indices]
-
-        region_baselines[r_idx] = np.nanmedian(region_masked)
-
-        for row_idx in range(n_rows):
-            valid = ~np.isnan(region_masked[row_idx, :])
-            per_row_counts[row_idx, r_idx] = valid.sum()
-            if valid.sum() > 2:
-                per_row_offsets[row_idx, r_idx] = (
-                    np.nanmedian(image_float[row_idx, valid]) - region_baselines[r_idx]
-                )
+    # Compute per-region medians and weights
+    for i, region_idx in enumerate(regions):
+        region_masked = np.full((rows, cols), np.nan)
+        region_masked.flat[region_idx] = img_f.flat[region_idx]
+        bg[i] = np.nanmedian(region_masked)
+        for rr in range(rows):
+            pos = ~np.isnan(region_masked[rr, :])
+            w[rr, i] = pos.sum()
+            if w[rr, i] > 2:
+                y1[rr, i] = np.nanmedian(img_f[rr, pos]) - bg[i]
             else:
-                per_row_offsets[row_idx, r_idx] = -region_baselines[r_idx]
+                y1[rr, i] = -bg[i]
 
-    # Compute normalized weights per row
-    totals = per_row_counts.sum(axis=1, keepdims=True)
-    denom = np.where(totals == 0, 1.0, totals)
-    weights = per_row_counts / denom
-    weights = np.where(weights > 0.02, weights, 0.0)
-
-    zero_weight_rows = weights.sum(axis=1) == 0
-    if zero_weight_rows.any():
-        weights[zero_weight_rows, :] = per_row_counts[zero_weight_rows, :] / np.maximum(
-            denom[zero_weight_rows], 1.0
-        )
-
-    weighted_row_background = (weights * per_row_offsets).sum(axis=1)
-    has_data = per_row_counts.sum(axis=1) > 0
-
-    leveled = image_float.copy()
-    leveled[has_data, :] = (
-        image_float[has_data, :] - weighted_row_background[has_data, None]
+    # Compute weighted median profile
+    W = np.divide(
+        w,
+        w.sum(axis=1, keepdims=True),
+        out=np.zeros_like(w),
+        where=w.sum(axis=1, keepdims=True) != 0,
     )
-    return np.asarray(leveled)
+    yf = np.sum(W * y1, axis=1)
+    pos = w.sum(axis=1) == 0
+    r = img_f.copy()
+    r[~pos, :] = img_f[~pos, :] - yf[~pos, None]
+
+    return np.asarray(r, dtype=np.float64)
 
 
 def level_weighted_med_line_y(
-    image: np.ndarray[Any, np.dtype[np.float64]],
+    img: np.ndarray[Any, np.dtype[np.float64]],
     regions: List[np.ndarray[Any, np.dtype[np.int64]]],
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
-    """Region-weighted median line subtraction along image columns.
+    """
+    Subtract a region-weighted column-wise median baseline.
+
+    This method mirrors the NanoLocz MATLAB ``level_weighted(...,'med_line_y')``
+    behavior. For each region a region-wide background level is computed
+    (median over region pixels). For each column and region, a column median
+    is computed over the region pixels in that column; the region background is
+    then removed to form a per-region column offset. Offsets are combined
+    across regions using per-column weights proportional to the number of
+    region pixels contributing in that column.
 
     Parameters
     ----------
-    image : np.ndarray
-        2-D AFM image (rows * columns).
-    regions : list of np.ndarray
-        List of flat-index arrays describing connected foreground regions.
+    img : ndarray
+        2D AFM image with shape ``(H, W)``.
+    regions : list of ndarray
+        Foreground regions as flat indices (NumPy row-major / ``order='C'``).
 
     Returns
     -------
-    np.ndarray
-        Column-leveled image (float64).
+    leveled : ndarray
+        Leveled image with the same shape as ``img`` and dtype ``float64``.
+
+    Notes
+    -----
+    - For a given column and region, if fewer than 3 region pixels are present,
+      the per-region column offset falls back to ``-bg_region`` (MATLAB behavior).
+    - Columns with no coverage from any region are left unchanged.
     """
-    image_float = np.asarray(image, dtype=float)
-    n_rows, n_cols = image_float.shape
+    img_f = np.asarray(img, dtype=float)
+    rows, cols = img_f.shape
     n_regions = len(regions)
+    if n_regions == 0:
+        return np.asarray(img_f.copy(), dtype=np.float64)
 
-    per_col_counts = np.zeros((n_cols, n_regions), dtype=float)
-    per_col_offsets = np.zeros((n_cols, n_regions), dtype=float)
-    region_baselines = np.zeros(n_regions, dtype=float)
+    w = np.zeros((cols, n_regions), dtype=float)
+    y1 = np.zeros((cols, n_regions), dtype=float)
+    bg = np.zeros(n_regions, dtype=float)
 
-    for r_idx, region_indices in enumerate(regions):
-        region_masked = np.full(image_float.shape, np.nan, dtype=float)
-        region_masked.flat[region_indices] = image_float.flat[region_indices]
-
-        region_baselines[r_idx] = np.nanmedian(region_masked)
-
-        for col_idx in range(n_cols):
-            valid = ~np.isnan(region_masked[:, col_idx])
-            per_col_counts[col_idx, r_idx] = valid.sum()
-            if valid.sum() > 2:
-                per_col_offsets[col_idx, r_idx] = (
-                    np.nanmedian(image_float[valid, col_idx]) - region_baselines[r_idx]
-                )
+    for i, region_idx in enumerate(regions):
+        region_masked = np.full((rows, cols), np.nan)
+        region_masked.flat[region_idx] = img_f.flat[region_idx]
+        bg[i] = np.nanmedian(region_masked)
+        for cc in range(cols):
+            pos = ~np.isnan(region_masked[:, cc])
+            w[cc, i] = pos.sum()
+            if w[cc, i] > 2:
+                y1[cc, i] = np.nanmedian(img_f[pos, cc]) - bg[i]
             else:
-                per_col_offsets[col_idx, r_idx] = -region_baselines[r_idx]
+                y1[cc, i] = -bg[i]
 
-    totals = per_col_counts.sum(axis=1, keepdims=True)
-    denom = np.where(totals == 0, 1.0, totals)
-    weights = per_col_counts / denom
-    weights = np.where(weights > 0.02, weights, 0.0)
-
-    zero_weight_cols = weights.sum(axis=1) == 0
-    if zero_weight_cols.any():
-        weights[zero_weight_cols, :] = per_col_counts[zero_weight_cols, :] / np.maximum(
-            denom[zero_weight_cols], 1.0
-        )
-
-    weighted_col_background = (weights * per_col_offsets).sum(axis=1)
-    has_data = per_col_counts.sum(axis=1) > 0
-
-    leveled = image_float.copy()
-    cols_with_data = has_data
-    leveled[:, cols_with_data] = (
-        image_float[:, cols_with_data]
-        - weighted_col_background[cols_with_data][None, :]
+    W = np.divide(
+        w,
+        w.sum(axis=1, keepdims=True),
+        out=np.zeros_like(w),
+        where=w.sum(axis=1, keepdims=True) != 0,
     )
-    return np.asarray(leveled)
+
+    yf = np.sum(W * y1, axis=1)
+    pos = w.sum(axis=1) == 0
+    r = img_f.copy()
+    r[:, ~pos] = img_f[:, ~pos] - yf[~pos][None, :]
+    return np.asarray(r, dtype=np.float64)
+
+
+# --- helper: MATLAB-like movmedian (include NaNs), centered, even window ---
+def _movmedian_centered_includenan(
+    x: np.ndarray[Any, np.dtype[np.float64]],
+    w: int,
+) -> np.ndarray[Any, np.dtype[np.float64]]:
+    """
+    Compute a centered moving median with NaN inclusion and symmetric edge shrinking.
+
+    MATLAB movmedian default: include NaNs. Even w: window centered about current &
+    previous (left=w//2, right=w-w//2). Shrink symmetrically at edges.
+    """
+    n = x.size
+    out = np.empty(n, dtype=np.float64)
+    left = w // 2
+    right = w - left
+    for i in range(n):
+        start = max(0, i - left)
+        end = min(n, i + right)  # end is exclusive
+        win = x[start:end]
+        # include NaNs => if any NaN in window, median becomes NaN (like MATLAB default)
+        out[i] = np.median(win)
+    return np.asarray(out, dtype=np.float64)
 
 
 def level_weighted_smed_line(
-    image: np.ndarray[Any, np.dtype[np.float64]],
+    img: np.ndarray[Any, np.dtype[np.float64]],
     regions: List[np.ndarray[Any, np.dtype[np.int64]]],
     smoothing_window: int = 10,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
-    """Region-weighted smoothed median line subtraction along rows.
+    """
+    Subtract a smoothed region-weighted row-wise median baseline.
 
-    Computes a weighted median profile per row and then subtracts the difference
-    between that profile and a moving-median-smoothed version of it (MATLAB
-    ``smed_line`` behaviour).
+    This method mirrors the NanoLocz MATLAB ``level_weighted(...,'smed_line')``
+    behavior. It first computes a region-weighted per-row baseline using row
+    medians (without subtracting the per-region background in the main path),
+    then applies a centered moving-median smoothing operation to that baseline
+    before subtracting it from the image.
 
     Parameters
     ----------
-    image : np.ndarray
-        2-D AFM image (rows * columns).
-    regions : list of np.ndarray
-        List of flat-index arrays describing connected foreground regions.
-    smoothing_window : int, optional
-        Window length for moving-median smoothing (default 10).
+    img : ndarray
+        2D AFM image with shape ``(H, W)``.
+    regions : list of ndarray
+        Foreground regions as flat indices (NumPy row-major / ``order='C'``).
+    smoothing_window : int, default 10
+        Window length for the moving-median smoothing of the baseline. The
+        implementation follows MATLAB ``movmedian`` defaults: include NaNs and
+        use a centered window with MATLAB's even-window convention.
 
     Returns
     -------
-    np.ndarray
-        Smoothed-median-leveled image.
+    leveled : ndarray
+        Leveled image with the same shape as ``img`` and dtype ``float64``.
+
+    Notes
+    -----
+    - NaNs produced during smoothing are replaced with 0 prior to subtraction
+      (consistent with the MATLAB-style "NaNs -> 0" handling in this workflow).
+    - Rows with no region coverage are left unchanged.
     """
-    image_float = np.asarray(image, dtype=float)
-    n_rows, n_cols = image_float.shape
+    img_f = np.asarray(img, dtype=float)
+    rows, cols = img_f.shape
     n_regions = len(regions)
+    if n_regions == 0:
+        return np.asarray(img_f.copy(), dtype=np.float64)
 
-    median_per_row = np.zeros(n_rows, dtype=float)
-    per_row_counts = np.zeros((n_rows, n_regions), dtype=float)
-    region_baselines = np.zeros(n_regions, dtype=float)
+    # per-region row medians with >2 guard, and region backgrounds
+    w = np.zeros((rows, n_regions), dtype=float)
+    y1 = np.zeros((rows, n_regions), dtype=float)
+    bg = np.zeros(n_regions, dtype=float)
 
-    for r_idx, region_indices in enumerate(regions):
-        region_masked = np.full(image_float.shape, np.nan, dtype=float)
-        region_masked.flat[region_indices] = image_float.flat[region_indices]
+    for i, region_idx in enumerate(regions):
+        region_masked = np.full((rows, cols), np.nan)
+        region_masked.flat[region_idx] = img_f.flat[region_idx]
+        bg[i] = np.nanmedian(region_masked)  # region-wide background
 
-        region_baselines[r_idx] = np.nanmedian(region_masked)
-
-        for row_idx in range(n_rows):
-            valid = ~np.isnan(region_masked[row_idx, :])
-            per_row_counts[row_idx, r_idx] = valid.sum()
-            if valid.sum() > 2:
-                median_per_row[row_idx] = np.nanmedian(image_float[row_idx, valid])
+        for rr in range(rows):
+            pos = ~np.isnan(region_masked[rr, :])
+            w[rr, i] = pos.sum()
+            if w[rr, i] > 2:
+                # raw row median in that region (no -bg here for smed_line)
+                y1[rr, i] = np.nanmedian(img_f[rr, pos])
             else:
-                median_per_row[row_idx] = -region_baselines[r_idx]
+                y1[rr, i] = -bg[i]
 
-    totals = per_row_counts.sum(axis=1, keepdims=True)
-    denom = np.where(totals == 0, 1.0, totals)
-    weights = per_row_counts / denom
-    weights = np.where(weights > 0.02, weights, 0.0)
+    # row-normalized weights (like MATLAB; rows with sum=0 produce NaNs in W and yf)
+    den = w.sum(axis=1, keepdims=True)
+    W = np.zeros_like(w, dtype=float)
+    np.divide(w, den, out=W, where=(den != 0))  # may create NaNs when den==0 (expected)
+    yf = (W * y1).sum(axis=1)  # row baseline
 
-    zero_weight_rows = weights.sum(axis=1) == 0
-    if zero_weight_rows.any():
-        weights[zero_weight_rows, :] = per_row_counts[zero_weight_rows, :] / np.maximum(
-            denom[zero_weight_rows], 1.0
-        )
+    # rows with zero total coverage
+    zero_rows = den[:, 0] == 0
 
-    weighted_background = (weights * median_per_row[:, None]).sum(axis=1)
+    # MATLAB movmedian default (include NaNs) with even window; then NaNs -> 0
+    yf_sm = _movmedian_centered_includenan(yf, smoothing_window)
+    yf_sm = np.where(np.isfinite(yf_sm), yf_sm, 0.0)
 
-    # moving median smoothing
-    k = int(smoothing_window)
-    if k <= 1:
-        smoothed = weighted_background.copy()
-    else:
-        pad = k // 2
-        padded = np.pad(weighted_background, pad, mode="edge")
-        smoothed = np.empty_like(weighted_background)
-        for i in range(n_rows):
-            smoothed[i] = np.median(padded[i : i + k])
-
-    return np.asarray(image_float - (weighted_background[:, None] - smoothed[:, None]))
+    # subtract the SMOOTHED BASELINE ITSELF on rows with coverage
+    r = img_f.copy()
+    r[~zero_rows, :] = img_f[~zero_rows, :] - yf_sm[~zero_rows, None]
+    return np.asarray(r, dtype=np.float64)
 
 
 def apply_level_weighted(
@@ -782,37 +792,69 @@ def apply_level_weighted(
     smoothing_window: int = 10,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
-    Apply a weighted-region leveling method to a 2D AFM image or stack.
+    Apply a weighted-region leveling method to an AFM image or stack.
 
-    Dispatcher for the level_weighted functions.
+    This is the primary public entry point for weighted-region leveling. The
+    function converts the user-provided *exclusion mask* into an internal
+    validity mask (valid pixels are those that are finite and not excluded),
+    finds connected regions on the valid pixels using 8-connectivity, and then
+    dispatches to the requested weighted leveling method.
 
     Parameters
     ----------
-    img : np.ndarray
-        2-D image (H * W) or 3-D stack (N * H * W).
-    polyx, polyy : int
-        Polynomial orders for X (columns) and Y (rows) fits when relevant.
+    img : ndarray
+        Input image or stack. Accepted shapes are ``(H, W)`` for a single image
+        and ``(N, H, W)`` for a frame stack. The returned array matches the
+        input shape.
+    polyx : int
+        Polynomial order for X-direction fits (columns/row-wise) for methods
+        that use polynomial fitting (e.g., ``'plane'`` and ``'line'``).
+    polyy : int
+        Polynomial order for Y-direction fits (rows/column-wise) for methods
+        that use polynomial fitting (e.g., ``'plane'`` and ``'line'``).
     method : str
-        One of ``'plane'``, ``'line'``, ``'med_line'``, ``'med_line_y'``,
-        or ``'smed_line'``.
-    mask : Optional[np.ndarray]
-        Mask with same shape as ``img`` (or H * W for single image). Non-zero
-        values are treated as foreground. If ``None``, the entire image is used.
-    smoothing_window : int
-        Window for ``smed_line`` smoothing.
+        Leveling method name. Supported values are:
+
+        - ``'plane'``      : region-weighted polynomial plane subtraction
+        - ``'line'``       : region-weighted polynomial line subtraction
+        - ``'med_line'``   : region-weighted row-wise median subtraction
+        - ``'med_line_y'`` : region-weighted column-wise median subtraction
+        - ``'smed_line'``  : smoothed region-weighted row-wise median subtraction
+    mask : ndarray of bool, optional
+        *Exclusion mask* with the same shape as ``img`` (or ``(H, W)`` for a
+        single-image mask applied per frame). Mask convention is:
+        ``True = excluded``, ``False = valid``. Excluded pixels are omitted from
+        region formation and fitting but are preserved in the output array.
+        Non-finite pixels in ``img`` are always treated as excluded.
+    smoothing_window : int, default 10
+        Moving-median window length used only for ``method='smed_line'``.
 
     Returns
     -------
-    np.ndarray
-        Leveled image with same shape as ``img`` (or stack).
-    """
-    arr = np.asarray(img)
-    is_stack = arr.ndim == 3
+    leveled : ndarray
+        Leveled image or stack with the same shape as ``img`` and dtype
+        ``float64``.
 
+    Raises
+    ------
+    ValueError
+        If ``mask`` has an incompatible shape or if ``method`` is not
+        recognized.
+
+    Notes
+    -----
+    - Regions are computed per frame with 8-connectivity, matching MATLAB
+      ``bwconncomp(mask, 8)``.
+    - A MATLAB-style minimum region area is enforced via:
+      ``min_area = max(1, floor(0.01 * H * W))``.
+    """
+    arr = np.asarray(img, dtype=np.float64)
+    is_stack = arr.ndim == 3
     frames = arr if is_stack else arr[np.newaxis, ...]
+    leveled_frames: List[np.ndarray[Any, np.dtype[np.float64]]] = []
 
     if mask is not None:
-        mask_arr = np.asarray(mask)
+        mask_arr = np.asarray(mask, dtype=bool)
         if mask_arr.ndim == 2:
             mask_arr = mask_arr[np.newaxis, ...]
         if mask_arr.shape != frames.shape:
@@ -820,33 +862,32 @@ def apply_level_weighted(
     else:
         mask_arr = None
 
-    leveled_frames: List[np.ndarray[Any, np.dtype[np.float64]]] = []
     for frame_idx in range(frames.shape[0]):
         frame = frames[frame_idx]
-        frame_mask = (
-            mask_arr[frame_idx]
-            if mask_arr is not None
-            else np.ones_like(frame, dtype=bool)
+
+        # Convert EXCLUSION mask -> validity mask (True = valid/included)
+        m_valid = _validity_mask(
+            frame, None if mask_arr is None else mask_arr[frame_idx]
         )
-        mask_bool = frame_mask.astype(bool)
 
+        # Region finding expects True = foreground => use validity
         n_rows, n_cols = frame.shape
-        min_area = max(1, int(0.01 * n_rows * n_cols))
-        regions = _find_regions(mask_bool, min_area)
+        min_area = max(1, int(np.floor(0.01 * n_rows * n_cols)))
+        regions = _find_regions(m_valid, min_area)
 
-        method = method.lower()
-        if method == "plane":
+        method_lc = method.lower()
+        if method_lc == "plane":
             leveled = level_weighted_plane(frame, regions, polyx, polyy)
-        elif method == "line":
+        elif method_lc == "line":
             leveled = level_weighted_line(frame, regions, polyx, polyy)
-        elif method == "med_line":
+        elif method_lc == "med_line":
             leveled = level_weighted_med_line(frame, regions)
-        elif method == "med_line_y":
+        elif method_lc == "med_line_y":
             leveled = level_weighted_med_line_y(frame, regions)
-        elif method == "smed_line":
+        elif method_lc == "smed_line":
             leveled = level_weighted_smed_line(frame, regions, smoothing_window)
         else:
-            raise ValueError(f"Unknown leveling method: {method}")
+            raise ValueError(f"Unknown leveling method: {method_lc}")
 
         leveled_frames.append(leveled)
 

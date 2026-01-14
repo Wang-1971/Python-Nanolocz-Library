@@ -1,0 +1,31 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Python-Nanolocz-Library
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Daniel E
+    family-names: Rollins
+    email: d.e.rollins@leed.ac.uk
+    affiliation: University of Leeds
+  - given-names: George R
+    family-names: Heath
+    affiliation: University of Leeds
+    email: G.R.Heath@leeds.ac.uk
+    orcid: 'https://orcid.org/0000-0001-6431-2191'
+repository-code: 'https://github.com/derollins/Python-Nanolocz-Library'
+abstract: >-
+  A Python implementation of the NanoLocz library
+  (https://github.com/George-R-Heath/NanoLocz-Matlab-Library).
+keywords:
+  - AFM
+  - Atomic Force MIcroscopy
+  - High Speed AFM
+  - Levelling
+  - image processing
+  - image analysis
+license: GPL-3.0
