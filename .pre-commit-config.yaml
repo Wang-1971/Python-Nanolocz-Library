@@ -4,14 +4,14 @@ repos:
     rev: v4.5.0
     hooks:
       - id: trailing-whitespace
-        exclude: ^(docs/|notebooks/|LICENSE)$
+        exclude: ^(docs/|tests/resources/|notebooks/|LICENSE)$
       - id: end-of-file-fixer
-        exclude: ^(docs/|notebooks/|LICENSE)$
+        exclude: ^(docs/|tests/resources/|notebooks/|LICENSE)$
       - id: check-yaml
         exclude: ^(docs/|notebooks/|LICENSE)$
       - id: check-added-large-files
         args: ["--maxkb=500"]
-        exclude: ^(docs/|notebooks/|LICENSE)$
+        exclude: ^(docs/|tests/resources/|notebooks/|LICENSE)$
       - id: check-merge-conflict
       - id: check-toml
 
@@ -74,4 +74,4 @@ repos:
     hooks:
       - id: codespell
         types: [text]
-        exclude: ^(docs/_build/|build/|dist/|notebooks/|LICENSE)$
+        exclude: ^(docs/_build/|tests/resources/|build/|dist/|notebooks/|LICENSE)$
