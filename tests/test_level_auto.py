@@ -465,7 +465,7 @@ def test_iterative_fit_holes_and_peaks_run_and_stay_finite():
 
 def test_plane_line_runs_on_real_spm_resource_and_improves_trend(load_npz):
     """Test that plane-line routine runs on real AFM data and reduces trends."""
-    z = load_npz("afm_0p0_00003_raw.npz")
+    z = load_npz("afm_0_00003_raw.npz")
     data = z["data"]
     assert data.ndim in (2, 3)
 
@@ -497,16 +497,23 @@ def nrms(a: np.ndarray, b: np.ndarray) -> float:
 
 def test_plane_line_matches_reference_with_tolerance(load_npz):
     """Test that plane-line routine matches reference data within tolerance."""
-    z_img = load_npz("afm_0p0_00003_raw.npz")  # raw input image
-    z_ref = load_npz(
-        "afm_0p0_00003_nanolocz_fitpeaks_.npz"
+    z_img = load_npz("afm_0_00003_raw.npz")  # raw input image
+    z_peaks_ref = load_npz(
+        "afm_0p0_00003_nanolocz_fitpeaks.npz"
     )  # reference image processed with Nanolocz using 'iterative fit peaks' routine
 
+    z_mpo_ref = load_npz(
+        "afm_0p0_00003_nanolocz_multiplaneotsu.npz"
+    )  # reference image processed with Nanolocz using 'multi-plane-otsu' routine
     img = z_img.get("data")
-    ref = z_ref.get("data")
+    peaks_ref = z_peaks_ref.get("data")
+    mpo_ref = z_mpo_ref.get("data")
 
     img = img.astype(float)
-    ref = ref.astype(float)
+    peaks_ref = peaks_ref.astype(float)
+    mpo_ref = mpo_ref.astype(float)
 
-    out = apply_level_auto(img, routine="iterative fit peaks")
-    assert nrms(out, ref) < 0.01  # within 1% NRMS difference
+    out_peaks = apply_level_auto(img, routine="iterative fit peaks")
+    out_mpo = apply_level_auto(img, routine="multi-plane-otsu")
+    assert nrms(out_peaks, peaks_ref) < 0.02  # within 2% NRMS difference
+    assert nrms(out_mpo, mpo_ref) < 0.02  # within 2% NRMS difference

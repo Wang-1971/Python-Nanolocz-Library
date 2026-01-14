@@ -471,6 +471,13 @@ def test_apply_level_raises_on_unknown_method():
         apply_level(img, polyx=0, polyy=0, method="not-a-method", mask=None)
 
 
+def test_get_background_raises_on_unknown_method():
+    """Test that get_background raises a ValueError on unknown method."""
+    img = np.zeros((5, 5))
+    with pytest.raises(ValueError):
+        get_background(img, polyx=0, polyy=0, method="not-a-method", mask=None)
+
+
 def test_apply_level_mask_shape_mismatch():
     """Test that apply_level raises a ValueError if mask shape does not match image."""
     img = np.zeros((5, 5))
@@ -524,3 +531,82 @@ def test_idempotence_on_flat_data(method, kwargs):
     img = rng.normal(scale=1e-5, size=(20, 20))  # nearly flat noise
     leveled = apply_level(img, method=method, mask=None, **kwargs)
     np.testing.assert_allclose(leveled, img, rtol=1e-6, atol=5e-5)
+
+
+# ---------------------------------
+# apply_level: real data tests
+# ---------------------------------
+
+
+def nrmse_range(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute the root-mean-square difference normalised by dynamic range."""
+    a = np.asarray(a, float)
+    b = np.asarray(b, float)
+    m = np.isfinite(a) & np.isfinite(b)
+    if not np.any(m):
+        return 0.0
+    rmse = np.sqrt(np.mean((a[m] - b[m]) ** 2))
+    denom = float(np.nanmax(b[m]) - np.nanmin(b[m]))
+    return float(rmse / denom) if denom != 0 else float(rmse)
+
+
+def test_apply_level_plane_runs_on_real_resource(load_npz):
+    """Test that apply_level with 'plane' method runs on real data."""
+    z = load_npz("afm_0_00003_raw.npz")
+    img = z.get("data")
+
+    out = apply_level(img, polyx=1, polyy=1, method="plane", mask=None)
+
+    assert out.shape == img.shape
+    assert np.isfinite(out).all()
+
+    # trend reduction: row/col mean range should drop
+    row_before = np.ptp(np.nanmean(img, axis=1))
+    col_before = np.ptp(np.nanmean(img, axis=0))
+    row_after = np.ptp(np.nanmean(out, axis=1))
+    col_after = np.ptp(np.nanmean(out, axis=0))
+
+    assert row_after <= row_before * 0.8
+    assert col_after <= col_before * 0.8
+
+
+@pytest.mark.parametrize(
+    "method,polyx,polyy,ref_file,tol",
+    [
+        ("plane", 1, 1, "afm_0_00003_nanolocz_plane_1_1.npz", 1e-14),
+        ("line", 1, 0, "afm_0_00003_nanolocz_line_1_0.npz", 1e-14),
+        ("med_line", 1, 0, "afm_0_00003_nanolocz_medline_1_0.npz", 1e-14),
+    ],
+)
+def test_apply_level_matches_matlab_reference(
+    load_npz, method, polyx, polyy, ref_file, tol
+):
+    """Apply_level matches MATLAB reference outputs on a real AFM resource."""
+    # Load raw image and force to 2D if stored as (1,H,W)
+    z = load_npz("afm_0_00003_raw.npz")
+    img = z["data"]
+    if img.ndim == 3 and img.shape[0] == 1:
+        img = img[0]
+    assert img.ndim == 2
+
+    # Load MATLAB reference (should be 2D)
+    ref = load_npz(ref_file)["data"]
+    if ref.ndim == 3 and ref.shape[0] == 1:
+        ref = ref[0]
+    assert ref.ndim == 2
+
+    out = apply_level(img, polyx=polyx, polyy=polyy, method=method, mask=None)
+
+    assert out.shape == ref.shape
+    assert nrmse_range(out, ref) < tol
+
+
+def test_get_background_consistency(load_npz):
+    """Test that img - apply_level == get_background for 'plane' method."""
+    img = load_npz("afm_0_00003_raw.npz")["data"]
+
+    out = apply_level(img, polyx=1, polyy=1, method="plane", mask=None)
+    bg = get_background(img, polyx=1, polyy=1, method="plane", mask=None)
+
+    # by definition: img - out == bg
+    assert np.allclose(img - out, bg, rtol=0, atol=1e-12)
