@@ -16,7 +16,6 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "scipy",
-    "matplotlib",
     "ruptures",
     "sknw",
     "scikit-image>=0.26,<0.27",
@@ -67,6 +66,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Image Processing",
 ]
 
@@ -81,10 +81,16 @@ dev = [
     "codespell>=2.3.0",
     "mypy==1.11.1",
     "nbstripout",
+    "setuptools_scm",
 ]
 
 [project.urls]
 Homepage = "https://github.com/derollins/Python-Nanolocz-Library"
+
+[project.entry-points."playnano.filters"]
+pnanolocz_level = "pnanolocz_lib.level:apply_level"
+pnanolocz_level_weighted = "pnanolocz_lib.level_weighted:apply_level_weighted"
+pnanolocz_level_auto = "pnanolocz_lib.level_auto:apply_level_auto"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
