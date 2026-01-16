@@ -779,8 +779,8 @@ def _log_y_correction(
 
 def apply_level(
     img: np.ndarray[Any, np.dtype[np.float64]],
-    polyx: int = None,
-    polyy: int = None,
+    polyx: Optional[int] = None,
+    polyy: Optional[int] = None,
     method: Literal[
         "plane",
         "line",
