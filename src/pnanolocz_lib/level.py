@@ -779,8 +779,8 @@ def _log_y_correction(
 
 def apply_level(
     img: np.ndarray[Any, np.dtype[np.float64]],
-    polyx: int,
-    polyy: int,
+    polyx: Optional[int] = None,
+    polyy: Optional[int] = None,
     method: Literal[
         "plane",
         "line",
@@ -789,7 +789,7 @@ def apply_level(
         "smed_line",
         "mean_plane",
         "log_y",
-    ],
+    ] = "plane",
     mask: Optional[np.ndarray[Any, np.dtype[np.bool_]]] = None,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
     """
@@ -814,7 +814,7 @@ def apply_level(
         Use ``0`` to disable polynomial fitting along Y where applicable.
     method : {"plane", "line", "med_line", "med_line_y", "smed_line", "mean_plane",
         "log_y"}
-        Leveling method to apply.
+        Leveling method to apply. Defaults to ``"plane"``.
     mask : ndarray of bool, optional
         Exclusion mask with the same shape as `img` (after any single-image
         promotion to ``(1, H, W)``).
@@ -865,18 +865,46 @@ def apply_level(
         frame_mask = mask[idx] if mask is not None else None
 
         if method == "plane":
+            if polyx is None:
+                polyx = 1
+            if polyy is None:
+                polyy = 1
             leveled = level_plane(frame, frame_mask, polyx, polyy)
         elif method == "line":
+            if polyx is None:
+                polyx = 1
+            if polyy is None:
+                polyy = 0
             leveled = level_line(frame, frame_mask, polyx, polyy)
         elif method == "med_line":
+            if polyx is None:
+                polyx = 1
+            if polyy is None:
+                polyy = 0
             leveled = level_med_line(frame, frame_mask, polyx, polyy)
         elif method == "med_line_y":
+            if polyx is None:
+                polyx = 0
+            if polyy is None:
+                polyy = 0
             leveled = level_med_line_y(frame, frame_mask, polyx, polyy)
         elif method == "smed_line":
+            if polyx is None:
+                polyx = 0
+            if polyy is None:
+                polyy = 0
             leveled = level_smed_line(frame, frame_mask, polyx, polyy)
         elif method == "mean_plane":
+            if polyx is None:
+                polyx = 0
+            if polyy is None:
+                polyy = 0
             leveled = level_mean_plane(frame, frame_mask, polyx, polyy)
         elif method == "log_y":
+            if polyx is None:
+                polyx = 0
+            if polyy is None:
+                polyy = 1
             leveled = level_log_y(frame, frame_mask, polyx, polyy)
         else:
             raise ValueError(f"Unknown leveling method: {method}")
