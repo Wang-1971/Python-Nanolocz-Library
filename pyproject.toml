@@ -89,7 +89,6 @@ Homepage = "https://github.com/derollins/Python-Nanolocz-Library"
 
 [project.entry-points."playnano.filters"]
 pnanolocz_level = "pnanolocz_lib.level:apply_level"
-pnanolocz_level_weighted = "pnanolocz_lib.level_weighted:apply_level_weighted"
 pnanolocz_level_auto = "pnanolocz_lib.level_auto:apply_level_auto"
 
 [tool.setuptools]
