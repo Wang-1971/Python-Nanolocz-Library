@@ -82,7 +82,6 @@ import warnings
 from typing import Any, Literal, Optional
 
 import numpy as np
-from numpy.polynomial.polyutils import RankWarning  # type: ignore[attr-defined]
 from scipy.optimize import curve_fit
 
 # Constants
@@ -193,7 +192,8 @@ def level_plane(
     # ========== X DIRECTION ==========
     # Column-wise masked mean with NaN-outside semantics
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
+        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
         column_means = np.nanmean(np.where(m, arr, np.nan), axis=0)
 
     valid_columns = ~np.isnan(column_means)
@@ -213,7 +213,8 @@ def level_plane(
     standardized_columns = (column_indices - col_centroid) / col_scale
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RankWarning)
+        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
         x_coeffs = np.polyfit(standardized_columns, column_means[valid_columns], polyx)
 
     # Evaluate polynomial at every column (1..W) using the same mu
@@ -226,7 +227,8 @@ def level_plane(
     # ========== Y DIRECTION ==========
     # Row-wise masked mean after X subtraction (NaN-outside semantics)
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
+        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
         row_means = np.nanmean(np.where(m, leveled, np.nan), axis=1)
 
     valid_rows = ~np.isnan(row_means)
@@ -245,7 +247,8 @@ def level_plane(
     standardized_rows = (row_indices - row_centroid) / row_scale
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RankWarning)
+        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
         y_coeffs = np.polyfit(standardized_rows, row_means[valid_rows], polyy)
 
     # Evaluate polynomial at every row (1..H) with the same mu
@@ -333,7 +336,8 @@ def level_line(
                 xs = (x_idx - mu) / sd  # xs: standardized x indices used for fitting
 
                 with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RankWarning)
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
                     p_coeff = np.polyfit(xs, y_vals, polyx)
 
                 all_cols = (np.arange(img_width) + 1).astype(np.float64)
@@ -378,7 +382,8 @@ def level_line(
             ys = (yl - mu) / sd  # ys: standardized y indices used for fitting
 
             with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RankWarning)
+                warnings.simplefilter("ignore", RuntimeWarning)
+                warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
                 p_coeff = np.polyfit(ys, y_vals, polyy)
 
             all_rows = (np.arange(img_height) + 1).astype(np.float64)
