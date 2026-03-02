@@ -10,7 +10,7 @@ authors = [
     { name = "Daniel E. Rollins", email = "d.e.rollins@leeds.ac.uk" }
 ]
 dynamic = ["version"]
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.11"
 dependencies = [
