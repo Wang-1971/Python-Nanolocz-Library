@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0", "wheel", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pnanolocz_lib"
+name = "pnanolocz"
 description = "A Python library for AFM, HS-AFM, and Localization AFM data analysis. Based on NanoLocz"
 authors = [
     { name = "George Heath", email = "G.R.Heath@leeds.ac.uk" },
     { name = "Daniel E. Rollins", email = "d.e.rollins@leeds.ac.uk" }
 ]
 dynamic = ["version"]
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.11"
 dependencies = [
@@ -86,10 +86,12 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/derollins/Python-Nanolocz-Library"
+Issues = "https://github.com/derollins/Python-Nanolocz-Library/issues"
+Changelog = "https://github.com/derollins/Python-Nanolocz-Library/blob/main/CHANGELOG.md"
 
 [project.entry-points."playnano.filters"]
-pnanolocz_level = "pnanolocz_lib.level:apply_level"
-pnanolocz_level_auto = "pnanolocz_lib.level_auto:apply_level_auto"
+pnanolocz_level = "pnanolocz.level:apply_level"
+pnanolocz_level_auto = "pnanolocz.level_auto:apply_level_auto"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -98,7 +100,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools_scm]
-write_to = "src/pnanolocz_lib/_version.py"
+write_to = "src/pnanolocz/_version.py"
 
 [tool.black]
 line-length = 88
@@ -127,7 +129,7 @@ multi_line_output = 3
 include_trailing_comma = true
 force_grid_wrap = 0
 combine_as_imports = true
-known_first_party = ["pnanolocz_lib"]
+known_first_party = ["pnanolocz"]
 known_third_party = ["numpy","scipy","matplotlib","skimage","ruptures","sknw"]
 
 [tool.ruff]
@@ -157,7 +159,7 @@ mypy_path = ["src"]
 # Only check your library code; do not include tests here.
 files = ["src"]
 
-# Regular package (you created src/pnanolocz_lib/__init__.py)
+# Regular package (you created src/pnanolocz/__init__.py)
 explicit_package_bases = false
 namespace_packages = false
 
@@ -178,12 +180,12 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-addopts = "--cov=pnanolocz_lib --cov-report=term-missing --cov-append"
+addopts = "--cov=pnanolocz --cov-report=term-missing --cov-append"
 testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["pnanolocz_lib"]
+source = ["pnanolocz"]
 
 [tool.coverage.report]
 exclude_lines = [

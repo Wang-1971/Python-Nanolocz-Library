@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pnanolocz_lib.level_weighted import (
+from pnanolocz.level_weighted import (
     _find_regions,
     _polyfit_centered,
     _polyval_centered,

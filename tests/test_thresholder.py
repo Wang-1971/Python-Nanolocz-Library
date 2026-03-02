@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pnanolocz_lib.thresholder import (
+from pnanolocz.thresholder import (
     apply_thresholder,
     auto_edges,
     hist_edges,
