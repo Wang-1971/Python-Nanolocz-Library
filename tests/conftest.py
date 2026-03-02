@@ -1,4 +1,4 @@
-"""Test fixtures for pnanolocz_lib."""
+"""Test fixtures for pnanolocz."""
 
 from __future__ import annotations
 

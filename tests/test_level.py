@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pnanolocz_lib.level import (
+from pnanolocz.level import (
     apply_level,
     get_background,
     level_line,

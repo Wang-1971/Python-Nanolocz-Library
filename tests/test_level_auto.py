@@ -5,8 +5,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from pnanolocz_lib import level_auto
-from pnanolocz_lib.level_auto import (
+from pnanolocz import level_auto
+from pnanolocz.level_auto import (
     ROUTINES,
     _compute_anisotropy_ratio,
     _compute_gauss_limits,

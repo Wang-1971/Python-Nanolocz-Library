@@ -8,8 +8,8 @@ line-based drift correction, region-weighted leveling, and iterative refinementâ
 to improve background flattening across challenging frames.
 
 All routines operate frame-by-frame and reuse the public function contracts of
-``pnanolocz_lib.level``, ``pnanolocz_lib.level_weighted``, and
-``pnanolocz_lib.thresholder``. Masks follow the *exclusion mask* convention:
+``pnanolocz.level``, ``pnanolocz.level_weighted``, and
+``pnanolocz.thresholder``. Masks follow the *exclusion mask* convention:
 ``True`` = excluded, ``False`` = valid. Excluded pixels are omitted from fitting
 using MATLAB-style NaN-outside semantics (i.e., excluded pixels behave like NaN
 during fitting) but are preserved in the output arrays.
@@ -53,12 +53,12 @@ Routine mechanics
 -----------------
 Each step is one of the following:
 
-- A leveling step via :func:`pnanolocz_lib.level.apply_level`
+- A leveling step via :func:`pnanolocz.level.apply_level`
   (e.g., ``plane``, ``line``, ``med_line``, ``mean_plane``).
 - A region-weighted leveling step via
-  :func:`pnanolocz_lib.level_weighted.apply_level_weighted` (e.g., weighted
+  :func:`pnanolocz.level_weighted.apply_level_weighted` (e.g., weighted
   ``plane`` or weighted ``med_line``).
-- A masking step via :func:`pnanolocz_lib.thresholder.apply_thresholder`
+- A masking step via :func:`pnanolocz.thresholder.apply_thresholder`
   which updates the current exclusion mask carried forward to subsequent steps.
 
 Some routines compute histogram bounds from a Gaussian fit to the image value
@@ -82,7 +82,7 @@ returned as 2D.
 
 Examples
 --------
->>> from pnanolocz_lib.level_auto import apply_level_auto
+>>> from pnanolocz.level_auto import apply_level_auto
 >>> leveled = apply_level_auto(stack, routine="multi-plane-otsu")
 
 >>> img_leveled = apply_level_auto(img, routine="plane-line")
@@ -102,9 +102,9 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import curve_fit
 
-from pnanolocz_lib.level import apply_level
-from pnanolocz_lib.level_weighted import apply_level_weighted
-from pnanolocz_lib.thresholder import apply_thresholder
+from pnanolocz.level import apply_level
+from pnanolocz.level_weighted import apply_level_weighted
+from pnanolocz.thresholder import apply_thresholder
 
 FloatArray = NDArray[np.float64]
 BoolArray = NDArray[np.bool_]
@@ -805,7 +805,7 @@ def _maybe_inject_precond(
         if ratio > factor:
             fn: Callable[..., FloatArray]
             if apply_level_fn is None:
-                from pnanolocz_lib.level import apply_level as _apply_level
+                from pnanolocz.level import apply_level as _apply_level
 
                 fn = _apply_level
             else:

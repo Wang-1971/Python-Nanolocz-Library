@@ -1,4 +1,4 @@
-# pnanolocz_lib 📦
+# pnanolocz 📦
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![pre-commit](https://github.com/derollins/Python-Nanolocz-Library/actions/workflows/pre-commit.yaml/badge.svg)](https://github.com/derollins/Python-Nanolocz-Library/actions/workflows/pre-commit.yaml)
@@ -24,7 +24,7 @@ flattening.
 ## 📦 Installation
 
 ```bash
-pip install pnanolocz_lib
+pip install pnanolocz
 ```
 
 Or clone & install locally:
@@ -59,10 +59,10 @@ easily extensible for AFM workflows.
 
 ```python
 import numpy as np
-from pnanolocz_lib.level import apply_level
-from pnanolocz_lib.level_auto import apply_level_auto
-from pnanolocz_lib.thresholder import apply_thresholder
-from pnanolocz_lib.level_weighted import apply_weighted_level
+from pnanolocz.level import apply_level
+from pnanolocz.level_auto import apply_level_auto
+from pnanolocz.thresholder import apply_thresholder
+from pnanolocz.level_weighted import apply_weighted_level
 
 # 1) Polynomial plane leveling
 img = np.load("frame.npy")        # (H,W)
@@ -85,7 +85,7 @@ mask = apply_thresholder(img, method="otsu", limits=None)
 
 ## 📖 Modules
 
-- **`pnanolocz_lib.level`**
+- **`pnanolocz.level`**
   Core flattening / leveling (plane, line, median, smoothed, mean, log).
 
   Typical usage involves calling the `apply_level()` function with an image (2D)
@@ -104,7 +104,7 @@ mask = apply_thresholder(img, method="otsu", limits=None)
 | `mean_plane` | Global mean subtraction.                                   |
 | `log_y`      | Logarithmic curve subtraction along the Y‑axis.            |
 
-- **`pnanolocz_lib.level_weighted`**
+- **`pnanolocz.level_weighted`**
   Weighted-region flattening / leveling (plane, line, median and smoothed).
 
   Typical usage involves calling the `apply_weighted_level()` function with an
@@ -121,7 +121,7 @@ mask = apply_thresholder(img, method="otsu", limits=None)
 | `med_line_y` | Region-weighted column-wise median line flattening.        |
 | `smed_line`  | Region-weighted smoothed median line subtraction.          |
 
-- **`pnanolocz_lib.thresholder`**
+- **`pnanolocz.thresholder`**
   Intensity / edge detection: histogram, Otsu, auto edges, skeleton, step detection.
 
   Typical usage involves calling the `apply_thresholder()` function with an image (2D)
@@ -142,7 +142,7 @@ mask = apply_thresholder(img, method="otsu", limits=None)
 | `hist_skel` | Skeletonize regions selected by histogram thresholding. |
 | `line_step` | Detect step changes along each row using PELT change point detection. |
 
-- **`pnanolocz_lib.level_auto`**
+- **`pnanolocz.level_auto`**
   Pre‑defined multi‑frame routines built from `level` + `thresholder`.
 
 | Routine                | Description                                                                                   |
