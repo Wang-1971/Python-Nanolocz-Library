@@ -1,4 +1,4 @@
-# pnanolocz 📦
+# pnanolocz
 
 <div align="center">
 
