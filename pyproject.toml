@@ -86,6 +86,8 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/derollins/Python-Nanolocz-Library"
+Issues = "https://github.com/derollins/Python-Nanolocz-Library/issues"
+Changelog = "https://github.com/derollins/Python-Nanolocz-Library/blob/main/CHANGELOG.md"
 
 [project.entry-points."playnano.filters"]
 pnanolocz_level = "pnanolocz.level:apply_level"
