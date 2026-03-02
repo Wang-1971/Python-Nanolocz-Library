@@ -70,7 +70,6 @@ import warnings
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
-from numpy.polynomial.polyutils import RankWarning  # type: ignore[attr-defined]
 from scipy import ndimage
 
 # ---------------------
@@ -151,7 +150,8 @@ def _polyfit_centered(
     std_x = (x - centroid) / scale
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RankWarning)
+        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
         coeffs = np.polyfit(std_x, y, order)
 
     return np.asarray(coeffs, dtype=np.float64), (centroid, scale)
@@ -314,7 +314,8 @@ def level_weighted_plane(
 
         # X-direction: mean of each column within region
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
+            warnings.simplefilter("ignore", RuntimeWarning)
+            warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
             mean_by_col = np.nanmean(
                 region_masked, axis=0
             )  # Nanolocz-mean_by_col is xp
@@ -336,7 +337,8 @@ def level_weighted_plane(
 
         # Y-direction: mean of each row within region
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
+            warnings.simplefilter("ignore", RuntimeWarning)
+            warnings.filterwarnings("ignore", message=".*[Rr]ank.*")
             mean_by_row = np.nanmean(region_masked, axis=1)
         valid_rows = ~np.isnan(mean_by_row)
         row_values = mean_by_row[valid_rows]

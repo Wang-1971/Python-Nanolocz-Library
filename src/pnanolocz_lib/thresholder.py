@@ -73,7 +73,7 @@ optional inversion.
 Authors
 -------
 George Heath, University of Leeds (MATLAB reference implementation)
-D. E. Rollins, University of Leeds (Python implementation)
+Daniel E. Rollins, University of Leeds (Python implementation)
 
 Part of the pNanoLocz-Lib Python library for AFM analysis.
 """
