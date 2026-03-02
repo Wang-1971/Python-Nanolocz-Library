@@ -1,9 +1,20 @@
-# pnanolocz 📦
+# pnanolocz
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+<div align="center">
+
+[![GitHub release](https://img.shields.io/github/v/release/derollins/Python-Nanolocz-Library?color=green)](https://github.com/derollins/Python-Nanolocz-Library/releases)
+[![GitHub release downloads](https://img.shields.io/github/downloads/derollins/Python-Nanolocz-Library/latest/total?color=green)](https://github.com/derollins/Python-Nanolocz-Library/releases)
+[![PyPI version](https://img.shields.io/pypi/v/pnanolocz?color=blue)](https://pypi.org/project/pnanolocz/)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pnanolocz)
+[![PyPI downloads](https://img.shields.io/pypi/dm/pnanolocz?color=blue)](https://pypi.org/project/pnanolocz/)
 [![pre-commit](https://github.com/derollins/Python-Nanolocz-Library/actions/workflows/pre-commit.yaml/badge.svg)](https://github.com/derollins/Python-Nanolocz-Library/actions/workflows/pre-commit.yaml)
 [![Tests](https://github.com/derollins/Python-Nanolocz-Library/actions/workflows/tests.yaml/badge.svg)](https://github.com/derollins/Python-Nanolocz-Library/actions/workflows/tests.yaml)
 [![codecov](https://codecov.io/gh/derollins/Python-Nanolocz-Library/graph/badge.svg?token=W5NkAxjlmX)](https://codecov.io/gh/derollins/Python-Nanolocz-Library)
+[![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+</div>
 
 *A Python library for AFM image flattening, background leveling, and edge detection, based on the MATLAB NanoLocz platform.*
 Original NanoLocz MATLAB library is available here: <https://github.com/George-R-Heath/NanoLocz-Matlab-Library>
