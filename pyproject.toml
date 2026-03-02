@@ -7,7 +7,7 @@ name = "pnanolocz_lib"
 description = "A Python library for AFM, HS-AFM, and Localization AFM data analysis. Based on NanoLocz"
 authors = [
     { name = "George Heath", email = "G.R.Heath@leeds.ac.uk" },
-    { name = "D. E. Rollins", email = "d.e.rollins@leeds.ac.uk" }
+    { name = "Daniel E. Rollins", email = "d.e.rollins@leeds.ac.uk" }
 ]
 dynamic = ["version"]
 readme = "README.md"
