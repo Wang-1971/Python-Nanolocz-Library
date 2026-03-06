@@ -972,6 +972,10 @@ def apply_level_auto(
       ``_compute_gauss_limits`` when a thresholder step declares ``args=['gauss_*']``.
     - The Gaussian-derived histogram bounds are calculated for each frame rather
       than globally across the stack, diverging from MATLAB behavior.
+
+    Version
+    -------
+    0.1.0
     """
     img_stack = np.asarray(img_stack)
     if img_stack.ndim == 2:
@@ -1039,6 +1043,9 @@ def apply_level_auto(
             result[i] = img
 
     return np.asarray(result[0]) if was_2d else np.asarray(result)
+
+
+apply_level_auto.__version__ = "0.1.0"
 
 
 __all__ = ["apply_level_auto", "ROUTINES"]

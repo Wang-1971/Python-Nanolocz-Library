@@ -7,7 +7,7 @@ for background planes, line-by-line drift, median offsets, and systematic
 row- or column-wise artefacts commonly observed in AFM topographic data.
 
 All public leveling functions accept an *exclusion mask* (same convention as
-``pnanolocz_lib.thresholder``): ``True`` = excluded, ``False`` = valid.
+``pnanolocz.thresholder``): ``True`` = excluded, ``False`` = valid.
 Excluded pixels are omitted from fitting using MATLAB-style NaN-outside
 semantics (i.e., excluded pixels behave like NaN during fitting) but are
 preserved in the output array.
@@ -63,10 +63,10 @@ single image it is used directly; for stacks, masks must match the stack shape
 
 Examples
 --------
->>> from pnanolocz_lib.level import level
+>>> from pnanolocz.level import level
 >>> leveled_stack = apply_level(stack, polyx=2, polyy=2, method="plane")
 
->>> from pnanolocz_lib.level import level_plane
+>>> from pnanolocz.level import level_plane
 >>> flattened = level_plane(img, mask=None, polyx=2, polyy=2)
 
 Authors
@@ -845,6 +845,10 @@ def apply_level(
     operations (e.g. ``where(valid, value, nan)``) during fitting.
     - Method-specific MATLAB parity notes (e.g., stage gating such as `polyy > 0`
     in ``"line"``) are documented in the corresponding function docstrings.
+
+    Version
+    -------
+    0.1.0
     """
     img = np.asarray(img)
     is_stack = img.ndim == 3
@@ -921,6 +925,9 @@ def apply_level(
     return np.asarray(result) if is_stack else np.asarray(result[0])
 
 
+apply_level.__version__ = "0.1.0"
+
+
 def get_background(
     img: np.ndarray[Any, np.dtype[np.float64]],
     polyx: int,
@@ -982,6 +989,10 @@ def get_background(
     certain parameter values) are inherited here.
     - Excluded pixels are preserved in the output arrays; masking primarily affects
     which pixels contribute to fitted estimates.
+
+    Version
+    -------
+    0.1.0
     """
     img = np.asarray(img)
     is_stack = img.ndim == 3
@@ -1028,6 +1039,9 @@ def get_background(
     return np.asarray(result) if is_stack else np.asarray(result[0])
 
 
+get_background.__version__ = "0.1.0"
+
+
 __all__ = [
     "apply_level",
     "level_plane",
@@ -1037,4 +1051,5 @@ __all__ = [
     "level_smed_line",
     "level_mean_plane",
     "level_log_y",
+    "get_background",
 ]

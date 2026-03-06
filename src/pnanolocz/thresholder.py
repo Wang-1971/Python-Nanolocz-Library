@@ -1027,6 +1027,10 @@ def apply_thresholder(
     >>> # Otsu on a stack, then invert to obtain a validity mask (True = valid)
     >>> excl = apply_thresholder(stack, method="otsu")
     >>> valid = np.logical_not(excl)
+
+    Version
+    -------
+    0.1.0
     """
     method = method.lower()
     if method not in _METHOD_MAP:
@@ -1067,6 +1071,9 @@ def apply_thresholder(
         result = np.logical_not(result)
 
     return result
+
+
+apply_thresholder.__version__ = "0.1.0"
 
 
 __all__ = [
