@@ -1073,7 +1073,7 @@ def apply_thresholder(
     return result
 
 
-apply_thresholder.__version__ = "0.1.0"
+apply_thresholder.__version__ = "0.1.0"  # type: ignore[attr-defined]
 
 
 __all__ = [

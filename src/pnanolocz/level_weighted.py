@@ -901,7 +901,7 @@ def apply_level_weighted(
     return np.asarray(stacked if is_stack else stacked[0])
 
 
-apply_level_weighted.__version__ = "0.1.0"
+apply_level_weighted.__version__ = "0.1.0"  # type: ignore[attr-defined]
 
 
 __all__ = [

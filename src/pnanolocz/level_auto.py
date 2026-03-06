@@ -1045,7 +1045,7 @@ def apply_level_auto(
     return np.asarray(result[0]) if was_2d else np.asarray(result)
 
 
-apply_level_auto.__version__ = "0.1.0"
+apply_level_auto.__version__ = "0.1.0"  # type: ignore[attr-defined]
 
 
 __all__ = ["apply_level_auto", "ROUTINES"]

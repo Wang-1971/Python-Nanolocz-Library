@@ -925,7 +925,7 @@ def apply_level(
     return np.asarray(result) if is_stack else np.asarray(result[0])
 
 
-apply_level.__version__ = "0.1.0"
+apply_level.__version__ = "0.1.0"  # type: ignore[attr-defined]
 
 
 def get_background(
@@ -1039,7 +1039,7 @@ def get_background(
     return np.asarray(result) if is_stack else np.asarray(result[0])
 
 
-get_background.__version__ = "0.1.0"
+get_background.__version__ = "0.1.0"  # type: ignore[attr-defined]
 
 
 __all__ = [
