@@ -8,7 +8,7 @@ polynomial and median-based background estimation for Atomic Force Microscopy
 and non-uniform masking effects.
 
 All public leveling functions accept an *exclusion mask* (same convention as
-``pnanolocz_lib.thresholder``): ``True`` = excluded, ``False`` = valid. Excluded
+``pnanolocz.thresholder``): ``True`` = excluded, ``False`` = valid. Excluded
 pixels are omitted from region formation and fitting using MATLAB-style NaN-outside
 semantics (i.e., excluded pixels behave like NaN during fitting) but are
 preserved in the output array.
@@ -55,7 +55,7 @@ single image it is used directly; for stacks, masks must match the stack shape
 
 Examples
 --------
->>> from pnanolocz_lib.level_weighted import apply_level_weighted
+>>> from pnanolocz.level_weighted import apply_level_weighted
 >>> leveled = apply_level_weighted(img, polyx=2, polyy=1, method='plane', mask=mask)
 
 Authors
@@ -849,6 +849,10 @@ def apply_level_weighted(
       ``bwconncomp(mask, 8)``.
     - A MATLAB-style minimum region area is enforced via:
       ``min_area = max(1, floor(0.01 * H * W))``.
+
+    Version
+    -------
+    0.1.0
     """
     arr = np.asarray(img, dtype=np.float64)
     is_stack = arr.ndim == 3
@@ -895,6 +899,9 @@ def apply_level_weighted(
 
     stacked = np.stack(leveled_frames, axis=0)
     return np.asarray(stacked if is_stack else stacked[0])
+
+
+apply_level_weighted.__version__ = "0.1.0"  # type: ignore[attr-defined]
 
 
 __all__ = [
