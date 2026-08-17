@@ -12,7 +12,7 @@ Validate the Python `gaussian` and `sphere` localization methods against MATLAB 
 - Test Python localization accuracy on synthetic Gaussian and spherical-cap peaks.
 - Preserve existing notebooks, source edits, and prior test outputs.
 
-The Python API names are `gaussian` and `sphere`; reports may use the human-readable label “spherical”.
+The Python API names are `gaussian` and `sphere`; reports may use the human-readable label "spherical".
 
 ## Real-image validation
 
@@ -44,24 +44,23 @@ Each method will be exercised at multiple subpixel offsets, with both `pixperfea
 
 Accuracy tolerances will be derived from exact synthetic inputs and fixed only after confirming that the test fails under a deliberately perturbed center. Tolerances must be strict enough to detect a meaningful regression and loose enough to avoid platform-specific optimizer noise.
 
-## Outputs
+## Separate test code and outputs
 
-Write generated artifacts beneath a new timestamped directory under `Software_testing_images/test_output/gaussian_sphere_localization_validation`. It will contain:
+Keep the two methods separate. Gaussian artifacts go beneath a new timestamped directory under `Software_testing_images/test_output/gaussian_localization_validation`. Sphere artifacts go beneath a new timestamped directory under `Software_testing_images/test_output/sphere_localization_validation`. Each method directory independently contains:
 
 - resolved configuration and environment metadata;
 - MATLAB and Python localization tables;
 - per-particle match tables;
 - per-image overlays and residual plots;
-- method-level and overall summary CSV/JSON files;
+- method summary CSV/JSON files;
 - a concise Markdown report listing failures and largest discrepancies.
 
-Automated synthetic tests will live in the existing `tests` tree and avoid new dependencies. Real-image/MATLAB comparison orchestration will reuse the repository's existing localization-table parity helpers where their matching contract fits.
+Automated synthetic tests live in two separate files in the existing `tests` tree: one Gaussian localization test file and one sphere localization test file. Real-image/MATLAB comparison entry points and method-specific assertions likewise remain separate. Both may reuse existing localization-table parity helpers where their matching contract fits, but no combined Gaussian/sphere test module or combined output directory will be created. The tests avoid new dependencies.
 
 ## Failure handling
 
-One unreadable image, optimizer failure, or MATLAB failure must be recorded against that file and method without hiding results for other inputs. The overall command exits non-zero when a required case fails, a comparison cannot run, or agreed tolerances are exceeded.
+One unreadable image, optimizer failure, or MATLAB failure must be recorded against that file and method without hiding results for other inputs. Gaussian and sphere validation commands have independent exit statuses. Each exits non-zero when one of its required cases fails, its comparison cannot run, or its agreed tolerances are exceeded.
 
 ## Verification
 
-Run the focused synthetic tests first, then the complete real-image comparison in the `pnanolocz` Conda environment. Finally run the existing localization-related regression tests. The final report will distinguish test failures, missing MATLAB reference results, unmatched localizations, and numerical tolerance failures.
-
+Run each focused synthetic test file first, then its corresponding complete real-image MATLAB comparison in the `pnanolocz` Conda environment. Finally run the existing localization-related regression tests. Each final report distinguishes test failures, missing MATLAB reference results, unmatched localizations, and numerical tolerance failures.
