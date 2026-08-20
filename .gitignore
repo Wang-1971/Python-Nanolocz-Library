@@ -56,7 +56,7 @@ coverage.xml
 /.idea/
 /.local/
 /Software_testing_images/
+/tests/
 /docs/
-/notebooks/
 /.test_artifacts/
 /.pytest_tmp*/

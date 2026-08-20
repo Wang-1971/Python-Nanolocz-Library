@@ -16,10 +16,19 @@ from scipy.optimize import linear_sum_assignment
 from pnanolocz.fast_peaks2d import fast_peaks2d
 from pnanolocz.localize import localize
 
-
 TABLE_COLUMNS = (
-    "x", "y", "z", "prominence", "frame", "source_frame",
-    "time", "correlation", "extra9", "extra10", "extra11", "extra12",
+    "x",
+    "y",
+    "z",
+    "prominence",
+    "frame",
+    "source_frame",
+    "time",
+    "correlation",
+    "extra9",
+    "extra10",
+    "extra11",
+    "extra12",
 )
 
 
@@ -37,9 +46,7 @@ def _gated_assignment(
     penalty = float(max_distance) + 1.0
     invalid = penalty * (size + 2)
     cost = np.full((size, size), invalid, dtype=np.float64)
-    cost[:n_mat, :n_py] = np.where(
-        distances <= float(max_distance), distances, invalid
-    )
+    cost[:n_mat, :n_py] = np.where(distances <= float(max_distance), distances, invalid)
     cost[:n_mat, n_py:] = penalty
     cost[n_mat:, :n_py] = penalty
     cost[n_mat:, n_py:] = 0.0
@@ -47,15 +54,16 @@ def _gated_assignment(
     valid = (
         (rows < n_mat)
         & (cols < n_py)
-        & (distances[rows.clip(max=n_mat - 1), cols.clip(max=n_py - 1)]
-           <= float(max_distance))
+        & (
+            distances[rows.clip(max=n_mat - 1), cols.clip(max=n_py - 1)]
+            <= float(max_distance)
+        )
     )
     return rows[valid], cols[valid]
 
 
-def create_run_directory(
-    root: str | Path, *, timestamp: str | None = None
-) -> Path:
+def create_run_directory(root: str | Path, *, timestamp: str | None = None) -> Path:
+    """Create and return a uniquely timestamped report directory."""
     root_path = Path(root)
     root_path.mkdir(parents=True, exist_ok=True)
     stem = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -102,9 +110,12 @@ def direct_localize_stack(movie: np.ndarray) -> np.ndarray:
     ys = _matlab_round(localized[:, 1]).astype(int)
     frames = _matlab_round(localized[:, 4]).astype(int)
     inside = (
-        (xs > 0) & (xs < stack.shape[2])
-        & (ys > 0) & (ys < stack.shape[1])
-        & (frames > 0) & (frames <= stack.shape[0])
+        (xs > 0)
+        & (xs < stack.shape[2])
+        & (ys > 0)
+        & (ys < stack.shape[1])
+        & (frames > 0)
+        & (frames <= stack.shape[0])
     )
     localized = localized[inside]
     xs, ys, frames = xs[inside] - 1, ys[inside] - 1, frames[inside] - 1
@@ -121,14 +132,15 @@ def _refresh_step3_z(table: pd.DataFrame, movie: np.ndarray) -> pd.DataFrame:
     ys = _matlab_round(table["y"].to_numpy(float)).astype(int)
     frames = _matlab_round(table["frame"].to_numpy(float)).astype(int)
     inside = (
-        (xs > 0) & (xs < stack.shape[2])
-        & (ys > 0) & (ys < stack.shape[1])
-        & (frames > 0) & (frames <= stack.shape[0])
+        (xs > 0)
+        & (xs < stack.shape[2])
+        & (ys > 0)
+        & (ys < stack.shape[1])
+        & (frames > 0)
+        & (frames <= stack.shape[0])
     )
     refreshed = table.loc[inside].copy()
-    refreshed.loc[:, "z"] = stack[
-        frames[inside] - 1, ys[inside] - 1, xs[inside] - 1
-    ]
+    refreshed.loc[:, "z"] = stack[frames[inside] - 1, ys[inside] - 1, xs[inside] - 1]
     return refreshed
 
 
@@ -163,13 +175,11 @@ def match_localization_tables(
         if not len(pi):
             mat_only.extend(mat[mi])
             continue
-        distances = np.linalg.norm(
-            mat[mi, None, :2] - py[None, pi, :2], axis=2
-        )
+        distances = np.linalg.norm(mat[mi, None, :2] - py[None, pi, :2], axis=2)
         mr, pr = _gated_assignment(distances, float(max_distance))
         used_m: set[int] = set()
         used_p: set[int] = set()
-        for m_local, p_local in zip(mr, pr):
+        for m_local, p_local in zip(mr, pr, strict=True):
             distance = float(distances[m_local, p_local])
             m_idx, p_idx = int(mi[m_local]), int(pi[p_local])
             used_m.add(m_idx)
@@ -177,6 +187,8 @@ def match_localization_tables(
             row: dict[str, float] = {
                 "frame": float(frame),
                 "distance_xy": distance,
+                "matlab_index": m_idx,
+                "python_index": p_idx,
             }
             for col, idx in (("x", 0), ("y", 1), ("z", 2)):
                 row[f"matlab_{col}"] = float(mat[m_idx, idx])
@@ -197,6 +209,7 @@ def match_localization_tables(
 def summarize_matches(
     matched: pd.DataFrame, matlab_count: int, python_count: int
 ) -> dict[str, float | int]:
+    """Summarize localization match counts and coordinate residuals."""
     metrics: dict[str, float | int] = {
         "matlab_count": int(matlab_count),
         "python_count": int(python_count),
@@ -208,7 +221,9 @@ def summarize_matches(
         ),
     }
     for col in ("x", "y", "z"):
-        delta = matched[f"delta_{col}"].to_numpy(float) if len(matched) else np.array([])
+        delta = (
+            matched[f"delta_{col}"].to_numpy(float) if len(matched) else np.array([])
+        )
         metrics[f"{col}_bias"] = float(np.mean(delta)) if len(delta) else np.nan
         metrics[f"{col}_mae"] = (
             round(float(np.mean(np.abs(delta))), 12) if len(delta) else np.nan
@@ -226,6 +241,7 @@ def summarize_matches(
 
 
 def export_python_tables(input_dir: Path, output_dir: Path) -> list[dict[str, Any]]:
+    """Export interpolation localization tables for all input TIFF files."""
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict[str, Any]] = []
     for path in sorted(input_dir.glob("*.tiff")):
@@ -241,7 +257,9 @@ def export_python_tables(input_dir: Path, output_dir: Path) -> list[dict[str, An
             if target.exists():
                 existing_table = pd.read_csv(target)
                 if tuple(existing_table.columns) != TABLE_COLUMNS:
-                    raise ValueError(f"Existing table has incompatible schema: {target}")
+                    raise ValueError(
+                        f"Existing table has incompatible schema: {target}"
+                    )
                 stack = tifffile.imread(path)
                 existing_table = _refresh_step3_z(existing_table, stack)
                 existing_table.to_csv(target, index=False)
@@ -290,6 +308,7 @@ def export_python_tables(input_dir: Path, output_dir: Path) -> list[dict[str, An
 def compare_directories(
     matlab_dir: Path, python_dir: Path, output_dir: Path
 ) -> pd.DataFrame:
+    """Compare exported MATLAB and Python interpolation tables."""
     matlab_manifest = json.loads((matlab_dir / "manifest.json").read_text())
     python_manifest = json.loads((python_dir / "manifest.json").read_text())
     matlab_files = matlab_manifest["files"]
@@ -384,6 +403,7 @@ def compare_directories(
 
 
 def main() -> None:
+    """Run interpolation export or comparison from the command line."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     py_cmd = sub.add_parser("python")
