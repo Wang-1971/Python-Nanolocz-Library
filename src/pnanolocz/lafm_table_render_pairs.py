@@ -104,11 +104,23 @@ def _new_render_directory(run_dir: Path) -> Path:
     return candidate
 
 
+def _table_directories(run_path: Path) -> tuple[Path, Path]:
+    """Resolve legacy or method-specific paired table directories."""
+    for matlab_name, python_name in (
+        ("matlab_tables", "python_tables"),
+        ("matlab", "python"),
+    ):
+        matlab_dir = run_path / matlab_name
+        python_dir = run_path / python_name
+        if matlab_dir.is_dir() and python_dir.is_dir():
+            return matlab_dir, python_dir
+    raise RuntimeError(f"No paired MATLAB/Python table directories in {run_path}")
+
+
 def render_all_pairs(run_dir: str | Path) -> Path:
     """Render all successful table pairs from a completed parity run."""
     run_path = Path(run_dir)
-    matlab_dir = run_path / "matlab_tables"
-    python_dir = run_path / "python_tables"
+    matlab_dir, python_dir = _table_directories(run_path)
     matlab_manifest = json.loads((matlab_dir / "manifest.json").read_text())
     python_manifest = json.loads((python_dir / "manifest.json").read_text())
     mat_entries = {entry["source"]: entry for entry in matlab_manifest["files"]}
@@ -180,6 +192,7 @@ def render_all_pairs(run_dir: str | Path) -> Path:
 
 
 def main() -> None:
+    """Render every MATLAB/Python localization-table pair in a parity run."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dir", type=Path, required=True)
     args = parser.parse_args()
