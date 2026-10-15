@@ -1,8 +1,8 @@
 """
-Normalized 2-D cross-correlation — MATLAB-compatible ``normxcorr2``.
+Normalized 2D cross-correlation: MATLAB-compatible ``normxcorr2``.
 
-This module ports the MATLAB Image Processing Toolbox function
-``normxcorr2`` as used throughout NanoLocz, following the "fast normalized
+This module is an independent implementation of ``normxcorr2`` with MATLAB-compatible
+output as used throughout NanoLocz, following the "fast normalized
 cross-correlation" formulation of J. P. Lewis (1995).
 
 Implementation
@@ -12,28 +12,32 @@ mean-subtracted, flipped template (O(N log N)).  The two denominator terms
 (local sum and local sum of squares) are computed with separable running sums,
 which are O(N) and need no transform, so each call performs one FFT instead of
 the three used by the reference Python implementation
-(https://github.com/Sabrewarrior/normxcorr2-python).  Dropping two FFTs is not
-by itself a large speed-up -- measured against that reference the two are within
-about 15% on 128-512 px images -- but it avoids the meshgrid index arrays of the
-integral-image formulation and gives the scale-free denominator handling below.
+(https://github.com/Sabrewarrior/normxcorr2-python).
 
 Scale handling
 --------------
-The correlation is normalized, so the result does not depend on the units of
-the input: the same image in metres, nanometres or volts gives the same map.
+The correlation is normalized, so it should not depend on the units of the
+input: the same image in metres, nanometres or volts gives the same peaks.
 This requires the denominator test to be *relative* rather than absolute.  A
 window whose variance is numerically indistinguishable from zero (a flat,
 zero-padded region) would otherwise divide noise by noise and produce spurious
 peaks.  Windows are therefore masked out when their denominator falls below
 ``sqrt(eps)`` of the largest denominator in the map, and any residual
-``|C| > 1`` caused by round-off is zeroed, as MATLAB does.
+``|C| > 1`` caused by round-off is zeroed, as MATLAB does.  Only those
+near-flat windows can differ slightly between scalings.
+
+References
+----------
+J. P. Lewis, "Fast Normalized Cross-Correlation", Vision Interface, 1995.
+
+Output is designed to match ``normxcorr2`` from MATLAB's Image Processing
+Toolbox (MATLAB is a registered trademark of The MathWorks, Inc.).  The FFT
+reference implementation by Ujash Joshi / Benjamin Eltzner
+(https://github.com/Sabrewarrior/normxcorr2-python) was used for comparison.
 
 Authors
 -------
-- MATLAB ``normxcorr2`` (Image Processing Toolbox), as used throughout NanoLocz.
-  MathWorks; NanoLocz by George R. Heath.
-- Reference Python implementation: Ujash Joshi (2017) / Benjamin Eltzner (2014).
-- NanoLocz integration: Wang-1971.
+- pnanolocz Python implementation: Wang-1971.
 """
 
 from __future__ import annotations
@@ -54,7 +58,7 @@ def _local_sum(a: FloatArray, m: int, n: int) -> FloatArray:
     Parameters
     ----------
     a:
-        2-D array to sum over.
+        2D array to sum over.
     m, n:
         Window size in rows and columns.
 
@@ -75,7 +79,7 @@ def _local_sum(a: FloatArray, m: int, n: int) -> FloatArray:
     )
     row_sums = row_cumsum[m:] - row_cumsum[:-m]
 
-    # Sum across each row of that result to complete the 2-D window sum.
+    # Sum across each row of that result to complete the 2D window sum.
     col_cumsum = np.concatenate(
         [
             np.zeros((row_sums.shape[0], 1), dtype=np.float64),
@@ -87,15 +91,15 @@ def _local_sum(a: FloatArray, m: int, n: int) -> FloatArray:
 
 
 def normxcorr2(template: FloatArray, image: FloatArray) -> FloatArray:
-    """Normalized 2-D cross-correlation, matching MATLAB ``normxcorr2``.
+    """Normalized 2D cross-correlation, matching MATLAB ``normxcorr2``.
 
     Parameters
     ----------
     template:
-        2-D template / filter.  Must be no larger than ``image`` in either
+        2D template / filter.  Must be no larger than ``image`` in either
         dimension, as in MATLAB.
     image:
-        2-D image to search.
+        2D image to search.
 
     Returns
     -------
@@ -108,28 +112,26 @@ def normxcorr2(template: FloatArray, image: FloatArray) -> FloatArray:
     Raises
     ------
     ValueError
-        If either input is not 2-D, or the template is larger than the image.
+        If either input is not 2D, or the template is larger than the image.
 
     Notes
     -----
-    Matches MATLAB's ``normxcorr2`` where the template is fully supported by the
-    image: there this implementation agrees with a brute-force sliding-window
-    definition of the coefficient to about 1e-13.  The two differ in the
-    zero-padded border, where the window variance sits at the round-off level and
-    the coefficient is undefined; those windows come back as 0 here instead of
-    as the ratio of two round-off terms.  Magnitudes at the border of the map
-    (and which border pixels are zero) are therefore not expected to match
-    MATLAB window for window.
+    As in MATLAB, an image with negative values is first shifted to a minimum
+    of 0, which only affects windows that overlap the zero-padded border.
+    Windows whose variance is at the round-off level (flat regions) are set
+    to 0, so which of those near-flat border windows come back as 0 may differ
+    from MATLAB.
 
     Non-finite input values (NaN, +/-Inf) are replaced by zero, whereas MATLAB
     propagates NaNs.  ``Detector.m`` zeroes NaN pixels before detection, so this
-    only affects direct callers.
+    only affects direct callers.  A constant template returns an all-zero map,
+    where MATLAB raises an error.
     """
-    if template.ndim != 2 or image.ndim != 2:
-        raise ValueError("normxcorr2 expects 2-D template and image arrays")
-
     template = np.asarray(template, dtype=np.float64)
     image = np.asarray(image, dtype=np.float64)
+
+    if template.ndim != 2 or image.ndim != 2:
+        raise ValueError("normxcorr2 expects 2D template and image arrays")
 
     t_rows, t_cols = template.shape
     if t_rows > image.shape[0] or t_cols > image.shape[1]:
@@ -140,6 +142,13 @@ def normxcorr2(template: FloatArray, image: FloatArray) -> FloatArray:
 
     template = np.nan_to_num(template, nan=0.0, posinf=0.0, neginf=0.0)
     image = np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # As MATLAB does, shift an image with negative values to a minimum of 0.
+    # This only changes the partial-overlap (border) part of the map, where the
+    # zero padding meets the data.
+    image_min = float(image.min())
+    if image_min < 0.0:
+        image = image - image_min
 
     out_shape = (image.shape[0] + t_rows - 1, image.shape[1] + t_cols - 1)
 

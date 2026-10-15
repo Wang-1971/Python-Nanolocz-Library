@@ -1,21 +1,14 @@
 """
-Fast 2-D peak detection for NanoLocz-compatible AFM workflows.
+Fast 2D peak detection for NanoLocz-compatible AFM workflows.
 
 This module ports MATLAB ``Fast_peaks2D.m``.  It detects local maxima above an
 intensity threshold and optionally filters them by a simple prominence measure.
 
-Coordinate convention
----------------------
-Output coordinates are 0-based Python indices (``x`` indexes columns, ``y``
-indexes rows), like the rest of pnanolocz:
-
-    locs[:, 0] = x / column index
-    locs[:, 1] = y / row index
-    locs[:, 2] = peak height
-    locs[:, 3] = prominence
-
-The MATLAB original returns 1-based coordinates; add 1 to ``x`` and ``y`` when
-comparing against MATLAB output.
+Results are returned as a :class:`Peaks` record of 1-D arrays, one entry per
+peak.  Coordinates are 0-based pixel indices (``x`` indexes columns, ``y``
+indexes rows), like the rest of pnanolocz, so they can index the image
+directly: ``img[peaks.y, peaks.x]``.  The MATLAB original returns 1-based
+coordinates; add 1 to ``x`` and ``y`` when comparing against MATLAB output.
 
 Notes
 -----
@@ -38,18 +31,50 @@ Authors
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 from scipy.ndimage import map_coordinates, maximum_filter
 
 FloatArray = np.ndarray[Any, np.dtype[np.float64]]
+IntArray = np.ndarray[Any, np.dtype[np.intp]]
+
+
+@dataclass(frozen=True, slots=True)
+class Peaks:
+    """
+    Local maxima found by :func:`fast_peaks2d`.
+
+    All fields are 1-D arrays of the same length, with one entry per peak.
+
+    Attributes
+    ----------
+    x : ndarray of intp
+        Column index of each peak (0-based).
+    y : ndarray of intp
+        Row index of each peak (0-based).
+    height : ndarray of float64
+        Image value at each peak.
+    prominence : ndarray of float64
+        Prominence of each peak, or zero when ``min_prom`` was not used.
+    """
+
+    x: IntArray
+    y: IntArray
+    height: FloatArray
+    prominence: FloatArray
+
+    def __len__(self) -> int:
+        """Return the number of peaks."""
+        return int(self.x.size)
 
 
 def _sample_line(
     img: FloatArray, x0: float, y0: float, x1: float, y1: float
 ) -> FloatArray:
-    """Sample image values along a straight line, as MATLAB ``improfile`` does.
+    """
+    Sample image values along a straight line, as MATLAB ``improfile`` does.
 
     ``x`` indexes columns and ``y`` indexes rows, matching the rest of
     pnanolocz.  One sample is taken per pixel along the longer axis of the line,
@@ -61,16 +86,39 @@ def _sample_line(
     n = max(n, 2)
     xs = np.linspace(x0, x1, n)
     ys = np.linspace(y0, y1, n)
-    line_profile = np.asarray(
-        map_coordinates(
-            np.asarray(img, dtype=np.float64),
-            [ys, xs],
-            order=0,
-            mode="nearest",
-        ),
-        dtype=np.float64,
+    return np.asarray(
+        map_coordinates(img, [ys, xs], order=0, mode="nearest"), dtype=np.float64
     )
-    return line_profile
+
+
+def _prominence(
+    img: FloatArray, x: IntArray, y: IntArray, height: FloatArray
+) -> FloatArray:
+    """
+    Return the prominence of each peak, as in MATLAB ``Fast_peaks2D.m``.
+
+    Prominence is the height of a peak above the lowest point on the line to
+    its nearest higher peak.  The highest peak has no higher neighbour, so its
+    prominence is its own height.
+    """
+    prominence = np.empty(height.size, dtype=np.float64)
+    highest = height.max()
+
+    for j in range(height.size):
+        if height[j] >= highest:
+            prominence[j] = height[j]
+            continue
+
+        # Nearest strictly higher peak.  Peak heights are finite (a NaN pixel
+        # never passes ``img > thresh``), so at least one exists here.
+        distance = np.sqrt(((x - x[j]) ** 2 + (y - y[j]) ** 2).astype(np.float64))
+        order = np.argsort(distance)
+        nearest = int(order[height[order] > height[j]][0])
+
+        profile = _sample_line(img, x[nearest], y[nearest], x[j], y[j])
+        prominence[j] = height[j] - float(np.nanmin(profile))
+
+    return prominence
 
 
 def fast_peaks2d(
@@ -78,32 +126,38 @@ def fast_peaks2d(
     thresh: float,
     kernel_size: int,
     min_prom: float = 0.0,
-) -> FloatArray:
-    """Detect local maxima in a 2-D image.
+) -> Peaks:
+    """
+    Detect local maxima in a 2D image.
 
     Parameters
     ----------
-    img:
-        2-D grayscale image.
-    thresh:
-        Minimum height threshold.
-    kernel_size:
+    img : ndarray
+        2D grayscale image.
+    thresh : float
+        Minimum height; only pixels strictly above it can be peaks.
+    kernel_size : int
         Size of the local neighbourhood used for maximum filtering, matching
         the MATLAB ``Fast_peaks2D`` argument.  The effective maximum-filter
         window is ``kernel_size + 2`` pixels.
-    min_prom:
-        Optional minimum prominence.  If <= 0, every detected peak is returned
-        with its prominence set to zero.
+    min_prom : float, default 0.0
+        Minimum prominence.  If <= 0, prominence is not computed and every
+        peak is returned with a prominence of zero.
 
     Returns
     -------
-    ndarray
-        ``N x 4`` array of ``[x, y, height, prominence]`` with 0-based
-        coordinates, or a 0-row array when no peaks are found.
+    Peaks
+        The detected peaks, in row-major order.  All fields are empty when no
+        peaks are found.
+
+    Raises
+    ------
+    ValueError
+        If ``img`` is not 2D.
     """
     arr = np.asarray(img, dtype=np.float64)
     if arr.ndim != 2:
-        raise ValueError("fast_peaks2d expects a 2-D image")
+        raise ValueError(f"fast_peaks2d expects a 2D image, got shape {arr.shape}")
 
     # MATLAB: kernel_size = kernel_size + 2;
     #         ordfilt2(Img, kernel_size^2, true(kernel_size), 'zeros')
@@ -115,7 +169,7 @@ def fast_peaks2d(
     # A pixel is a peak when it is the maximum of its window and above thresh.
     maxima = (max_filtered == arr) & (arr > float(thresh))
 
-    # MATLAB Nanolocz Fast_peaks2D.m excludes the first two and the last three
+    # MATLAB NanoLocz Fast_peaks2D.m excludes the first two and the last three
     # rows/columns, where the zero-padded maximum filter is not fully supported.
     if maxima.shape[0] >= 5:
         maxima[:2, :] = False
@@ -124,53 +178,17 @@ def fast_peaks2d(
         maxima[:, :2] = False
         maxima[:, -3:] = False
 
-    rows, cols = np.nonzero(maxima)
-    heights = arr[rows, cols]
+    y, x = np.nonzero(maxima)
+    height = arr[y, x]
 
-    if rows.size == 0:
-        return np.empty((0, 4), dtype=np.float64)
+    if float(min_prom) > 0 and height.size > 0:
+        prominence = _prominence(arr, x, y, height)
+        keep = prominence > float(min_prom)
+        return Peaks(x[keep], y[keep], height[keep], prominence[keep])
 
-    # 0-based (x, y) peak coordinates; MATLAB's find returns 1-based ones.
-    coords = np.column_stack([cols.astype(np.float64), rows.astype(np.float64)])
-
-    if float(min_prom) > 0:
-        prom = np.zeros(rows.size, dtype=np.float64)
-        for j in range(rows.size):
-            # Distance from peak j to every other peak, nearest first.
-            d = np.sqrt(np.sum((coords[j, :2] - coords[:, :2]) ** 2, axis=1))
-            order = np.argsort(d)
-
-            # If this is the highest peak, MATLAB assigns its own height.
-            if np.all(heights[j] >= heights):
-                prom[j] = heights[j]
-                continue
-
-            # Nearest peak that is strictly higher than peak j.  Peak heights
-            # are finite (a NaN pixel never passes ``arr > thresh``), so at
-            # least one peak is strictly higher here.
-            nearest_higher = int(order[heights[order] > heights[j]][0])
-
-            # Prominence is the height of peak j above the lowest point on the
-            # line joining it to that nearest higher peak.
-            line_vals = _sample_line(
-                arr,
-                coords[nearest_higher, 0],
-                coords[nearest_higher, 1],
-                coords[j, 0],
-                coords[j, 1],
-            )
-            prom[j] = heights[j] - float(np.nanmin(line_vals))
-
-        keep = prom > float(min_prom)
-        coords = coords[keep]
-        heights = heights[keep]
-        prom = prom[keep]
-    else:
-        prom = np.zeros(rows.size, dtype=np.float64)
-
-    return np.asarray(np.column_stack([coords, heights, prom]), dtype=np.float64)
+    return Peaks(x, y, height, np.zeros(height.size, dtype=np.float64))
 
 
 fast_peaks2d.__version__ = "0.1.0"  # type: ignore[attr-defined]
 
-__all__ = ["fast_peaks2d"]
+__all__ = ["Peaks", "fast_peaks2d"]
