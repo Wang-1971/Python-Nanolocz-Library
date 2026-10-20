@@ -18,18 +18,31 @@ and the columns listed in :data:`DETECTOR_COLUMNS`:
     correlation  -> correlation for ``'ccr'``; prominence (always 0) for
                     ``'Peak picker'``
     frame        -> 0-based frame number (integer)
+    id           -> stable 0-based index of the detection in this table
     angle        -> best rotation angle in degrees (0 without ``angles``)
+    kept         -> curation flag; True for every fresh detection
 
-These correspond to columns 1-5 and 8 of the MATLAB ``Detector.m`` output.
-Coordinates and frame numbers are 0-based so they can index arrays directly;
-add 1 when comparing with MATLAB output.  Detections come out frame by frame,
-in :func:`numpy.nonzero` (row-major) order within each frame.  When nothing is
-detected an empty (0-row) table with the same columns is returned.
+The first five columns and ``angle`` correspond to columns 1-5 and 8 of the
+MATLAB ``Detector.m`` output.  Coordinates and frame numbers are 0-based so they
+can index arrays directly; add 1 when comparing with MATLAB output.  Detections
+come out frame by frame, in :func:`numpy.nonzero` (row-major) order within each
+frame.  When nothing is detected an empty (0-row) table with the same columns is
+returned.
+
+``id`` is assigned once, in row order, and is never renumbered: it is the handle
+for cross-referencing a detection with the MATLAB ``Part Locs`` table, a saved
+rejection list or a figure, even after rows have been limited or removed.
+``kept`` plays the role of the 0/1 ``IncludeImages`` mask that the NanoLocz GUI
+keeps *outside* the table: it starts ``True``, and :func:`limit_per_frame`, a
+caller or a GUI can clear it for a detection that should be ignored, so
+``detections[detections["kept"]]`` is the curated table while ``id`` stays
+stable for the rows that were dropped.  Neither column takes part in detection.
 
 The detection itself is done by :func:`_detect_locs`, which works on plain
 arrays and returns a :class:`Detections` record; :func:`detector` validates the
-inputs and turns that record into the DataFrame.  :func:`limit_per_frame` keeps
-the best ``n`` detections in each frame.
+inputs, adds the ``id``/``kept`` curation columns and turns that record into the
+DataFrame.  :func:`limit_per_frame` marks all but the best ``n`` detections of
+each frame as not kept, and :func:`drop_detections` removes rows by ``id``.
 
 Notes
 -----
@@ -98,8 +111,12 @@ class Detections:
         return {f.name: getattr(self, f.name) for f in fields(self)}
 
 
-# Column order of the detector table, taken from the Detections fields.
-DETECTOR_COLUMNS = tuple(f.name for f in fields(Detections))
+# Columns computed by _detect_locs, in table order (the Detections fields).
+DETECTION_FIELDS = tuple(f.name for f in fields(Detections))
+
+# Column order of the public detection table.  ``id`` and ``kept`` are the
+# curation columns added by detector(); see the module docstring.
+DETECTOR_COLUMNS = ("x", "y", "z", "correlation", "frame", "id", "angle", "kept")
 
 
 def _as_stack(img: FloatArray) -> FloatArray:
@@ -123,7 +140,7 @@ def _concat_detections(parts: list[Detections]) -> Detections:
     return Detections(
         **{
             name: np.concatenate([getattr(p, name) for p in parts])
-            for name in DETECTOR_COLUMNS
+            for name in DETECTION_FIELDS
         }
     )
 
@@ -186,14 +203,15 @@ def limit_per_frame(
     detections: pd.DataFrame, n: int, by: str = "correlation"
 ) -> pd.DataFrame:
     """
-    Keep the ``n`` highest-scoring detections in each frame.
+    Mark all but the ``n`` highest-scoring detections of each frame as not kept.
 
     Parameters
     ----------
     detections : pandas.DataFrame
-        Detection table with a ``frame`` column, e.g. from :func:`detector`.
+        Detection table with ``frame``, ``kept`` and ``by`` columns, e.g. from
+        :func:`detector`.
     n : int
-        Maximum number of detections to keep per frame.
+        Maximum number of kept detections per frame.
     by : str, default "correlation"
         Column to rank by, highest first.  Use ``"z"`` for ``'Peak picker'``
         results, whose ``correlation`` column is all zeros.
@@ -201,25 +219,72 @@ def limit_per_frame(
     Returns
     -------
     pandas.DataFrame
-        The selected rows in their original order, with their original index
-        labels.  ``detections`` itself is not modified.  Ties keep the earlier
-        row, and NaN scores rank last.
+        A copy with ``kept`` cleared for every detection outside the top ``n``
+        of its frame.  No rows are dropped, so the index labels and the ``id``
+        values are unchanged and the table still lines up with the full
+        detection set.  Ties keep the earlier row, NaN scores rank last, and
+        rows that were already ``kept=False`` stay that way.  ``detections``
+        itself is not modified.
+
+    Notes
+    -----
+    Marking rather than dropping is what keeps ``id`` comparable with MATLAB
+    ``Detector.m`` output and lets a limit be revised later.  Select
+    ``detections[detections["kept"]]`` for the limited table, or use
+    :func:`drop_detections` to remove rows outright.
 
     Raises
     ------
     ValueError
         If ``n`` is not a positive integer.
     KeyError
-        If ``by`` or ``frame`` is not a column of ``detections``.
+        If ``by``, ``frame`` or ``kept`` is not a column of ``detections``.
     """
     if isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 1:
         raise ValueError(f"n must be a positive integer, got {n!r}")
-    top = (
-        detections.sort_values(by, ascending=False, kind="stable")
-        .groupby("frame")
-        .head(n)
+    out = detections.copy()
+    rank = out.groupby("frame", sort=False)[by].rank(
+        method="first", ascending=False, na_option="bottom"
     )
-    return top.sort_index()
+    out["kept"] = out["kept"].astype(bool) & (rank <= int(n))
+    return out
+
+
+def drop_detections(
+    detections: pd.DataFrame, ids: int | Iterable[int]
+) -> pd.DataFrame:
+    """
+    Remove the detections whose ``id`` is in ``ids``.
+
+    Parameters
+    ----------
+    detections : pandas.DataFrame
+        Detection table with an ``id`` column, e.g. from :func:`detector`.
+    ids : int or iterable of int
+        One ``id`` or several.  These are values of the ``id`` column, not
+        index labels.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A copy without the matching rows.  The original index labels and the
+        remaining ``id`` values are kept, so the survivors can still be matched
+        against the detection set (or MATLAB output) the ids came from.
+
+    Raises
+    ------
+    KeyError
+        If ``detections`` has no ``id`` column.
+    ValueError
+        If any requested ``id`` is not present in the table.
+    """
+    if "id" not in detections.columns:
+        raise KeyError("detections has no 'id' column")
+    wanted = [int(ids)] if isinstance(ids, (int, np.integer)) else [int(i) for i in ids]
+    missing = sorted(set(wanted) - set(int(i) for i in detections["id"]))
+    if missing:
+        raise ValueError(f"id(s) not found in detections: {missing}")
+    return detections.loc[~detections["id"].isin(wanted)].copy()
 
 
 def _detect_locs(
@@ -397,7 +462,9 @@ def detector(
     -------
     pandas.DataFrame
         One row per detection with the columns in :data:`DETECTOR_COLUMNS`,
-        0-based.  Empty (``res.empty``) when nothing is detected.
+        0-based.  ``id`` is a stable 0-based handle for each detection and
+        ``kept`` starts ``True`` for all of them.  Empty (``res.empty``) when
+        nothing is detected.
 
     Raises
     ------
@@ -457,14 +524,21 @@ def detector(
         fastdetect,
         angle_array,
     )
-    return pd.DataFrame(locs.as_dict())
+    # Curation columns: 'id' is the stable handle for cross-reference, 'kept'
+    # starts True and is cleared by limit_per_frame or by a caller/GUI.
+    data = locs.as_dict()
+    data["id"] = np.arange(len(locs), dtype=np.intp)
+    data["kept"] = np.ones(len(locs), dtype=bool)
+    return pd.DataFrame(data)[list(DETECTOR_COLUMNS)]
 
 
 detector.__version__ = "0.1.0"  # type: ignore[attr-defined]
 limit_per_frame.__version__ = "0.1.0"  # type: ignore[attr-defined]
+drop_detections.__version__ = "0.1.0"  # type: ignore[attr-defined]
 
 __all__ = [
     "DETECTOR_COLUMNS",
     "detector",
+    "drop_detections",
     "limit_per_frame",
 ]

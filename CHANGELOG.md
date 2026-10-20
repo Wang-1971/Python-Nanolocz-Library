@@ -19,11 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     cross-correlation against a reference image), with optional template rotation
     (`angles`), edge exclusion (`ex_edge`), half-resolution fast detection (`fastdetect`) and
     Gaussian filtering of the frames and correlation maps.
-  - Returns a `pandas.DataFrame` with columns `x, y, z, correlation, frame, angle`
+  - Returns a `pandas.DataFrame` with columns `x, y, z, correlation, frame, id, angle, kept`
     (`DETECTOR_COLUMNS`). Coordinates and frame numbers are 0-based; an empty (0-row) table
-    is returned when nothing is detected.
-  - `limit_per_frame()` keeps the `n` highest-scoring detections in each frame (ranked by
-    `correlation`, or by `z` for Peak picker results) and leaves the input table unchanged.
+    is returned when nothing is detected. `id` is a stable 0-based handle for cross-referencing
+    a detection (for example with the MATLAB `Part Locs` table), and `kept` is a boolean
+    curation flag that starts `True` and can be cleared without renumbering.
+  - `limit_per_frame()` marks all but the `n` highest-scoring detections in each frame as
+    `kept=False` (ranked by `correlation`, or by `z` for Peak picker results) without
+    dropping rows, so `id` stays comparable with the full detection set after limiting.
+  - `drop_detections()` removes detections by `id` and leaves the remaining ids unchanged.
 - `peaks` module: `fast_peaks2d()`, a port of `Fast_peaks2D.m`, returning a `Peaks` record
   of 0-based integer `x`/`y` indices, `height` and optional `prominence`.
 - `correlation` module: `normxcorr2()`, an independent implementation of MATLAB-compatible

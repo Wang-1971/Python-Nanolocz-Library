@@ -23,12 +23,14 @@ from scipy.ndimage import gaussian_filter, rotate, zoom
 
 from pnanolocz.correlation import normxcorr2
 from pnanolocz.detector import (
+    DETECTION_FIELDS,
     DETECTOR_COLUMNS,
     Detections,
     _crop_corr_edges,
     _detect_locs,
     _lookup_heights,
     detector,
+    drop_detections,
     limit_per_frame,
 )
 from pnanolocz.peaks import _sample_line, fast_peaks2d
@@ -95,7 +97,9 @@ def _run_ccr(img: np.ndarray, ref: np.ndarray, **kwargs: object) -> pd.DataFrame
 def test_columns_match_nanolocz_part_locs_layout():
     """Column names and order follow the NanoLocz 'Part Locs' export.
 
-    ``savedata.m`` exports ``x, y, Height, ccr, Frame, Angle``;
+    ``savedata.m`` exports ``x, y, Height, ccr, Frame, id, Track id, Angle``.
+    ``kept`` is a pnanolocz addition (the GUI keeps that mask outside the
+    table), and ``track_id`` arrives with particle tracking, not detection.
     """
     assert DETECTOR_COLUMNS == (
         "x",
@@ -103,7 +107,9 @@ def test_columns_match_nanolocz_part_locs_layout():
         "z",
         "correlation",
         "frame",
+        "id",
         "angle",
+        "kept",
     )
 
 
@@ -118,6 +124,10 @@ def test_peak_picker_returns_named_dataframe():
     assert res["x"].tolist() == pytest.approx([32.0, 32.0, 32.0])
     assert res["y"].tolist() == pytest.approx([32.0, 32.0, 32.0])
     assert res["frame"].tolist() == [0.0, 1.0, 2.0]
+    # 'id' numbers every detection once, in row order, and never restarts.
+    assert res["id"].tolist() == [0, 1, 2]
+    # 'kept' is the curation flag and starts True for every detection.
+    assert res["kept"].tolist() == [True, True, True]
     # 'Peak picker' puts prominence (here 0, the default) in 'correlation'.
     assert res["correlation"].tolist() == [0.0, 0.0, 0.0]
     assert res["angle"].tolist() == [0.0, 0.0, 0.0]
@@ -170,6 +180,9 @@ def test_empty_detection_returns_empty_table():
     assert res.empty
     assert len(res) == 0
     assert list(res.columns) == list(DETECTOR_COLUMNS)
+    # The empty table keeps the curation columns and their dtypes.
+    assert res["id"].dtype == np.intp
+    assert res["kept"].dtype == bool
 
 
 def test_2d_input_is_promoted_to_one_frame():
@@ -703,7 +716,7 @@ def test_detect_locs_empty_result_keeps_dtypes():
     assert len(locs) == 0
     assert locs.frame.dtype == np.intp
     assert locs.x.dtype == np.float64
-    assert list(locs.as_dict()) == list(DETECTOR_COLUMNS)
+    assert list(locs.as_dict()) == list(DETECTION_FIELDS)
 
 
 def test_detector_is_a_thin_wrapper_around_detect_locs():
@@ -714,7 +727,10 @@ def test_detector_is_a_thin_wrapper_around_detect_locs():
     locs = _detect(img, method="ccr", ref_img=ref, peak_kernel_size=6, min_thresh=0.5)
     table = _run_ccr(img, ref)
 
-    pd.testing.assert_frame_equal(table, pd.DataFrame(locs.as_dict()))
+    pd.testing.assert_frame_equal(
+        table.drop(columns=["id", "kept"]),
+        pd.DataFrame(locs.as_dict())[list(DETECTION_FIELDS)],
+    )
 
 
 def test_detect_locs_fastdetect_reads_z_before_rescaling():
@@ -738,6 +754,8 @@ def test_detect_locs_fastdetect_reads_z_before_rescaling():
 def test_public_functions_expose_versions():
     """Test the ported entry points carry a version, like the other modules."""
     assert detector.__version__ == "0.1.0"
+    assert limit_per_frame.__version__ == "0.1.0"
+    assert drop_detections.__version__ == "0.1.0"
     assert fast_peaks2d.__version__ == "0.1.0"
     assert normxcorr2.__version__ == "0.1.0"
 
@@ -768,19 +786,49 @@ def test_real_afm_fixture_peak_picker(load_npz):
 # --------------------------------
 
 
-def test_limit_per_frame_keeps_top_n_in_original_order():
-    """Check the best n rows of each frame survive in their original order."""
+def test_limit_per_frame_marks_top_n_per_frame():
+    """Check the best n rows of each frame stay kept, without dropping rows."""
     detections = pd.DataFrame(
         {
             "frame": [0, 0, 0, 1, 1],
             "correlation": [0.5, 0.9, 0.9, 0.2, 0.8],
             "z": [3.0, 1.0, 2.0, 5.0, 4.0],
+            "id": [10, 11, 12, 13, 14],
+            "kept": [True] * 5,
         }
     )
 
-    assert limit_per_frame(detections, 2).index.tolist() == [1, 2, 3, 4]
-    assert limit_per_frame(detections, 1, by="z").index.tolist() == [0, 3]
-    assert len(detections) == 5  # input untouched
+    limited = limit_per_frame(detections, 2)
+
+    # Ties keep the earlier row, so id 10 (0.5) loses to ids 11 and 12 (0.9).
+    # Frame 1 has only two detections, so both of them stay kept.
+    assert limited["kept"].tolist() == [False, True, True, True, True]
+    # No rows are dropped: order, index labels and ids are unchanged.
+    assert limited.index.tolist() == detections.index.tolist()
+    assert limited["id"].tolist() == detections["id"].tolist()
+    assert len(limited) == len(detections)
+    # The input table is not modified.
+    assert detections["kept"].all()
+
+    by_z = limit_per_frame(detections, 1, by="z")
+
+    assert by_z["kept"].tolist() == [True, False, False, True, False]
+
+
+def test_limit_per_frame_keeps_manual_exclusions_and_ranks_nan_last():
+    """Rows already excluded stay excluded, and NaN scores rank last."""
+    detections = pd.DataFrame(
+        {
+            "frame": [0, 0, 0],
+            "correlation": [0.9, 0.8, np.nan],
+            "id": [0, 1, 2],
+            "kept": [False, True, True],
+        }
+    )
+
+    limited = limit_per_frame(detections, 2)
+
+    assert limited["kept"].tolist() == [False, True, False]
 
 
 @pytest.mark.parametrize("n", [0, -1, 2.5, True])
@@ -788,3 +836,49 @@ def test_limit_per_frame_rejects_bad_n(n):
     """Test that N must be a positive integer."""
     with pytest.raises(ValueError, match="positive integer"):
         limit_per_frame(pd.DataFrame({"frame": [0], "correlation": [1.0]}), n)
+
+
+def test_drop_detections_removes_rows_by_id():
+    """Check that dropping one id removes its row and leaves the rest stable."""
+    res = _run_peak_picker(_blob_stack(n_frames=3))
+
+    out = drop_detections(res, int(res["id"].iloc[1]))
+
+    assert out["id"].tolist() == [0, 2]  # ids are not renumbered
+    assert out.index.tolist() == [0, 2]  # index labels are kept
+    assert len(res) == 3  # input untouched
+    assert out["kept"].all()
+
+
+def test_drop_detections_accepts_several_ids():
+    """Check that a list of ids drops every matching row."""
+    res = _run_peak_picker(_blob_stack(n_frames=3))
+
+    out = drop_detections(res, [int(res["id"].iloc[0]), int(res["id"].iloc[2])])
+
+    assert out["id"].tolist() == [1]
+
+
+def test_drop_detections_rejects_unknown_id():
+    """Unknown ids raise instead of silently doing nothing."""
+    res = _run_peak_picker(_blob_stack(n_frames=1))
+
+    with pytest.raises(ValueError, match="not found"):
+        drop_detections(res, 99)
+
+
+def test_drop_detections_requires_an_id_column():
+    """A table without ids cannot be curated this way."""
+    with pytest.raises(KeyError, match="id"):
+        drop_detections(pd.DataFrame({"frame": [0]}), 0)
+
+
+def test_curation_workflow_end_to_end():
+    """Check the documented workflow: limit, exclude, then select kept rows."""
+    res = _run_peak_picker(_blob_stack(n_frames=3))
+
+    limited = limit_per_frame(res, 1)
+    curated = limited[limited["kept"]]
+
+    assert len(curated) == 3
+    assert curated["id"].tolist() == [0, 1, 2]
