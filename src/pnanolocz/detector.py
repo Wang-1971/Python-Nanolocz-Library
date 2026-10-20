@@ -42,7 +42,8 @@ The detection itself is done by :func:`_detect_locs`, which works on plain
 arrays and returns a :class:`Detections` record; :func:`detector` validates the
 inputs, adds the ``id``/``kept`` curation columns and turns that record into the
 DataFrame.  :func:`limit_per_frame` marks all but the best ``n`` detections of
-each frame as not kept, and :func:`drop_detections` removes rows by ``id``.
+each frame as not kept (one per frame by default), and
+:func:`drop_detections` removes rows by ``id``.
 
 Notes
 -----
@@ -200,7 +201,7 @@ def _crop_corr_edges(
 
 
 def limit_per_frame(
-    detections: pd.DataFrame, n: int, by: str = "correlation"
+    detections: pd.DataFrame, n: int = 1, by: str = "correlation"
 ) -> pd.DataFrame:
     """
     Mark all but the ``n`` highest-scoring detections of each frame as not kept.
@@ -210,7 +211,7 @@ def limit_per_frame(
     detections : pandas.DataFrame
         Detection table with ``frame``, ``kept`` and ``by`` columns, e.g. from
         :func:`detector`.
-    n : int
+    n : int, default 1
         Maximum number of kept detections per frame.
     by : str, default "correlation"
         Column to rank by, highest first.  Use ``"z"`` for ``'Peak picker'``

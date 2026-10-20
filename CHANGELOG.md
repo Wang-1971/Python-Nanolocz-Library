@@ -25,8 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     a detection (for example with the MATLAB `Part Locs` table), and `kept` is a boolean
     curation flag that starts `True` and can be cleared without renumbering.
   - `limit_per_frame()` marks all but the `n` highest-scoring detections in each frame as
-    `kept=False` (ranked by `correlation`, or by `z` for Peak picker results) without
-    dropping rows, so `id` stays comparable with the full detection set after limiting.
+    `kept=False` (ranked by `correlation`, or by `z` for Peak picker results; `n` defaults to
+    one per frame) without dropping rows, so `id` stays comparable with the full detection set
+    after limiting.
   - `drop_detections()` removes detections by `id` and leaves the remaining ids unchanged.
 - `peaks` module: `fast_peaks2d()`, a port of `Fast_peaks2D.m`, returning a `Peaks` record
   of 0-based integer `x`/`y` indices, `height` and optional `prominence`.

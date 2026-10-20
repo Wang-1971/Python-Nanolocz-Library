@@ -815,6 +815,22 @@ def test_limit_per_frame_marks_top_n_per_frame():
     assert by_z["kept"].tolist() == [True, False, False, True, False]
 
 
+def test_limit_per_frame_defaults_to_one_per_frame():
+    """Check that n defaults to one detection per frame."""
+    detections = pd.DataFrame(
+        {
+            "frame": [0, 0, 0, 1, 1],
+            "correlation": [0.5, 0.9, 0.9, 0.2, 0.8],
+            "id": [0, 1, 2, 3, 4],
+            "kept": [True] * 5,
+        }
+    )
+
+    limited = limit_per_frame(detections)
+
+    assert limited["kept"].tolist() == [False, True, False, False, True]
+
+
 def test_limit_per_frame_keeps_manual_exclusions_and_ranks_nan_last():
     """Rows already excluded stay excluded, and NaN scores rank last."""
     detections = pd.DataFrame(
