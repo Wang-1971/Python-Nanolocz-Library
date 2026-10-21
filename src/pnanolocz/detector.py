@@ -251,9 +251,7 @@ def limit_per_frame(
     return out
 
 
-def drop_detections(
-    detections: pd.DataFrame, ids: int | Iterable[int]
-) -> pd.DataFrame:
+def drop_detections(detections: pd.DataFrame, ids: int | Iterable[int]) -> pd.DataFrame:
     """
     Remove the detections whose ``id`` is in ``ids``.
 
@@ -282,7 +280,7 @@ def drop_detections(
     if "id" not in detections.columns:
         raise KeyError("detections has no 'id' column")
     wanted = [int(ids)] if isinstance(ids, (int, np.integer)) else [int(i) for i in ids]
-    missing = sorted(set(wanted) - set(int(i) for i in detections["id"]))
+    missing = sorted(set(wanted) - {int(i) for i in detections["id"]})
     if missing:
         raise ValueError(f"id(s) not found in detections: {missing}")
     return detections.loc[~detections["id"].isin(wanted)].copy()
